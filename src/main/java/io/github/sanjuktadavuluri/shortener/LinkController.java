@@ -3,7 +3,10 @@ package io.github.sanjuktadavuluri.shortener;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.net.URI;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -11,26 +14,29 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** The JSON API for creating Links. */
+/** The JSON API: create a Link, and follow a Short URL. */
 @RestController
 class LinkController {
 
-  private final ShortCodeGenerator shortCodes;
-  private final ShortenerProperties properties;
+  static final String MALFORMED_REQUEST =
+      "The request body must be JSON like {\"url\": \"https://example.com\"}.";
+
+  private final LinkService linkService;
   private final LinkStore links;
 
-  LinkController(ShortCodeGenerator shortCodes, LinkStore links, ShortenerProperties properties) {
-    this.shortCodes = shortCodes;
+  LinkController(LinkService linkService, LinkStore links) {
+    this.linkService = linkService;
     this.links = links;
-    this.properties = properties;
   }
 
   @PostMapping("/links")
   @ResponseStatus(HttpStatus.CREATED)
   CreatedLink createLink(@RequestBody CreateLinkRequest request) {
-    String shortCode = shortCodes.next();
-    links.save(shortCode, request.url());
-    return new CreatedLink(shortCode, properties.baseUrl() + "/" + shortCode, request.url());
+    if (request.url() == null) {
+      throw new MalformedRequestException();
+    }
+    Link link = linkService.create(request.url());
+    return new CreatedLink(link.shortCode(), link.shortUrl(), link.longUrl());
   }
 
   @GetMapping("/{shortCode}")
@@ -46,10 +52,24 @@ class LinkController {
         .orElseGet(() -> ResponseEntity.notFound().build());
   }
 
+  @ExceptionHandler
+  ProblemDetail rejected(RejectedLongUrlException e) {
+    return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, e.rejectionReason());
+  }
+
+  @ExceptionHandler({HttpMessageNotReadableException.class, MalformedRequestException.class})
+  ProblemDetail malformed() {
+    return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, MALFORMED_REQUEST);
+  }
+
   record CreateLinkRequest(String url) {}
 
   record CreatedLink(
       @JsonProperty("short_code") String shortCode,
       @JsonProperty("short_url") String shortUrl,
       @JsonProperty("long_url") String longUrl) {}
+
+  private static final class MalformedRequestException extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+  }
 }
