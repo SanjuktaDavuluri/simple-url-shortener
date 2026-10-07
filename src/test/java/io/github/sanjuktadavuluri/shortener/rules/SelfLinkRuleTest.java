@@ -34,6 +34,12 @@ class SelfLinkRuleTest {
     void otherHostsPass(String longUrl) {
       assertThat(rule.check(longUrl)).isEqualTo(RuleResult.passed());
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"mailto:someone@sho.rt", "not a url", "http://"})
+    void longUrlsWithoutAHostAreLeftToTheOtherRules(String longUrl) {
+      assertThat(rule.check(longUrl)).isEqualTo(RuleResult.passed());
+    }
   }
 
   @Nested
@@ -48,7 +54,7 @@ class SelfLinkRuleTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"http://localhost:3000/x", "http://localhost/x"})
+    @ValueSource(strings = {"http://localhost:3000/x", "http://localhost/x", "https://localhost/x"})
     void theSameHostOnAnotherPortPasses(String longUrl) {
       assertThat(rule.check(longUrl)).isEqualTo(RuleResult.passed());
     }

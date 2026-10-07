@@ -24,7 +24,7 @@ How we prove that the parts of the shortener work **together**, across real boun
 
 1. **Test at the agreed seams** (spec 0001): the HTTP surface and the Rule Set. Integration tests never call internal classes directly and never assert on SQL or table contents. Behaviour is observed through HTTP responses only.
 2. **Real infrastructure, nothing mocked inside the boundary.** Integration tests use a real SQLite file migrated by Flyway, the real Spring context and real Thymeleaf rendering. The only substitution is the **`ShortCodeGenerator`** bean, which is replaced with a scripted one so Collisions are deterministic.
-3. **Isolation.** Each Spring test context gets a fresh SQLite file in a temporary directory, wired in through `@DynamicPropertySource`. Classes that share a cached context share its file, so every test uses its own distinct Short Codes and tests can run in any order. (A per-class `@TempDir` doesn't work with Spring's context cache: JUnit deletes the directory while the cached context still uses it.)
+3. **Isolation.** Integration test classes share Spring's cached application context, and with it one SQLite file and one scripted generator. **Before every test** the base class resets both: Flyway rebuilds the schema from the migrations (`clean` + `migrate`, enabled only in tests), and the Short Code script is emptied. Tests may therefore reuse Short Codes and run in any order, and every test also re-proves that the migrations apply to an empty database. (A per-class `@TempDir` doesn't work with the context cache: JUnit deletes the directory while the cached context still uses it.)
 4. **Independent expectations.** Expected values come from the spec (status codes, headers, literal Short Codes from the scripted generator), never recomputed the way the code computes them.
 5. **Every acceptance criterion is traceable.** Each integration test names the issue and the acceptance criterion it covers (see the traceability matrix, section 5).
 
@@ -34,10 +34,11 @@ How we prove that the parts of the shortener work **together**, across real boun
 |---|---|
 | Application context | `@SpringBootTest` + `@AutoConfigureMockMvc`, driven with `MockMvcTester` (in-process; no network) |
 | Real HTTP (one smoke class) | `@SpringBootTest(webEnvironment = RANDOM_PORT)` with a real HTTP client, to prove the servlet container sends 302s, `Location` and `Cache-Control` exactly as specified |
-| Database | A fresh SQLite file in a temporary directory per Spring test context (shared by the classes that reuse that cached context; tests use distinct Short Codes); Flyway runs `V1__create_links.sql` on startup, so every run proves migrations apply to an empty database |
+| Database | One SQLite file per Spring test context under `target/test-databases/` (removed by `./mvnw clean`); reset to an empty, freshly migrated schema before every test |
 | Short Codes | `@TestConfiguration` that supplies a scripted `ShortCodeGenerator` (e.g. `AAAAAAA`, `AAAAAAA`, `BBBBBBB`) |
 | Configuration | `BASE_URL` set to a fixed test value (e.g. `http://sho.rt`) so Short URLs are predictable |
-| Restart simulation | A second application context started on the **same** database file, for persistence checks |
+| Restart / production config | `TestApps.start(...)` starts an extra real instance (settings as command-line arguments, so they outrank `application.properties`), e.g. on the **same** database file for persistence checks |
+| Requests | Shared helpers in the base class (`postLink`, `postBody`, `createLink`); request bodies are serialised by Jackson |
 | CI | GitHub Actions, Temurin JDK 25, `./mvnw verify`; Failsafe reports uploaded as build artifacts when a test fails |
 
 ## 4. Phases
@@ -46,7 +47,7 @@ How we prove that the parts of the shortener work **together**, across real boun
 |---|---|---|---|---|---|
 | **P1: Walking skeleton** | 1 | Create → Redirect → 404 over the full context; persistence across a restart; Flyway migrates an empty database; one real-HTTP smoke test; production configuration (`BASE_URL` default) | All #3 acceptance criteria covered by `*IT` tests; green in CI | #3 | done ([#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12)) |
 | **P2: Collisions** | 1 | Scripted Collision then success; all 5 attempts collide → `503` | #4 criteria covered | #4 | not started |
-| **P3: Rules through HTTP** | 1 | Each Rejection Reason surfaces as `422` via `POST /links`; malformed JSON → `422`. (Rule edge cases stay as **unit** tests.) | #5 criteria covered | #5 | in progress |
+| **P3: Rules through HTTP** | 1 | Each Rejection Reason surfaces as `422` via `POST /links`; malformed JSON → `422`. (Rule edge cases stay as **unit** tests.) | #5 criteria covered | #5 | done ([#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13)) |
 | **P4: Web page** | 1 | Full page renders; no-JS form post shows the Short URL; rejection shown inline with input preserved; HTMX request (`HX-Request: true`) returns only the fragment; both render the same fragment | #6 and #7 criteria covered | #6, #7 | not started |
 | **P5: Container smoke** | 2 | Build the Docker image; start it with Testcontainers; health endpoint, create and Redirect over a real socket | Image-level `*SystemIT` green in CI | R11, R12 | planned |
 | **P6: Link Store contract suite** | 3 | One abstract contract test suite, run against **SQLite and PostgreSQL** (Testcontainers), proving both implementations behave identically, including duplicate Short Codes | Both implementations pass the same suite | R5 | planned |
@@ -67,11 +68,15 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #3 | Links persist across restarts; the database enforces unique Short Codes | `PersistenceIT` → `linksSurviveARestart` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
 | #3 | Production config: `BASE_URL` default | `ConfigurationIT` → `shortUrlsDefaultToLocalhostWithRealShortCodes` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
 | #3 | Real HTTP sends the specified Redirect headers | `RedirectOverHttpIT` → `aRealHttpClientReceivesTheRedirectAsSpecified` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
+| #14 | A rejected Long URL creates no Link and uses no Short Code | `RejectionIT` → `aRejectedLongUrlCreatesNoLinkAndUsesNoShortCode` | ☑ #14 |
+| #14 | Errors are `application/problem+json` with status, title, instance | `RejectionIT` → `rejectionsAreProblemDetails` | ☑ #14 |
+| #14 | Wrong `Content-Type` → `415` | `RejectionIT` → `aRequestThatIsNotLabelledAsJsonIsAnUnsupportedMediaType` | ☑ #14 |
+| #14 | Request bodies with characters that need JSON escaping reach the Rules intact | `LinkApiIT` → `aLongUrlContainingAQuoteIsRejectedNotMisreadAsBrokenJson` | ☑ #14 |
 | #4 | Collision retried; 5 Collisions → `503` | `CollisionIT` | ☐ |
-| #5 | Rejected Long URL → `422` with Rejection Reason | `RejectionIT` → `aRejectedLongUrlIsRefusedWithItsRejectionReason` | ☑ #5 |
-| #5 | Self-link refused (Rule Set bound to the configured Base URL) | `RejectionIT` → `aSelfLinkIsRefused` | ☑ #5 |
-| #5 | Whitespace trimmed before Rules and storage | `RejectionIT` → `surroundingWhitespaceIsTrimmedBeforeTheRulesAndStorage` | ☑ #5 |
-| #5 | Malformed request (not JSON / no `url`) → `422` | `RejectionIT` → `aRequestThatIsNotJsonIsUnprocessable`, `aRequestWithoutAUrlIsUnprocessable` | ☑ #5 |
+| #5 | Rejected Long URL → `422` with Rejection Reason | `RejectionIT` → `aRejectedLongUrlIsRefusedWithItsRejectionReason` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
+| #5 | Self-link refused (Rule Set bound to the configured Base URL) | `RejectionIT` → `aSelfLinkIsRefused` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
+| #5 | Whitespace trimmed before Rules and storage | `RejectionIT` → `surroundingWhitespaceIsTrimmedBeforeTheRulesAndStorage` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
+| #5 | Malformed request (not JSON / no `url`) → `422` | `RejectionIT` → `aRequestThatIsNotJsonIsUnprocessable`, `aRequestWithoutAUrlIsUnprocessable` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
 | #6 | No-JS page flow, inline rejection | `WebPageIT` | ☐ |
 | #7 | HTMX fragment vs full page | `WebPageHtmxIT` | ☐ |
 
@@ -88,6 +93,7 @@ Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 | Risk | Mitigation |
 |---|---|
 | A slow Spring context makes the suite sluggish | Reuse the context across test classes (Spring's test context cache); keep scripted-generator configuration identical between classes |
+| Shared context state (database, generator) leaks between tests | Reset before every test (Flyway clean + migrate, empty script); proven by a mutation check that disabling the reset breaks the suite (#14) |
 | SQLite file locking between parallel tests | One database file per Spring test context; integration tests run sequentially in wave 1 |
 | `MockMvcTester` hides servlet-container behaviour (headers, redirects) | The single real-HTTP smoke test (`RedirectOverHttpIT`) |
 | Behaviour differs between SQLite and PostgreSQL | Contract suite in P6 before the R5 migration ships |

@@ -3,7 +3,6 @@ package io.github.sanjuktadavuluri.shortener;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
 
 /** Issue #3: creating a Link and following it, through the HTTP seam. */
 class LinkApiIT extends IntegrationTest {
@@ -12,11 +11,7 @@ class LinkApiIT extends IntegrationTest {
   void creatingALinkReturnsItsShortUrl() {
     shortCodes.willReturn("Ab3xK9q");
 
-    assertThat(
-            mvc.post()
-                .uri("/links")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"url\": \"https://example.com/very/long\"}"))
+    assertThat(postLink("https://example.com/very/long"))
         .hasStatus(201)
         .bodyJson()
         .isStrictlyEqualTo(
@@ -31,10 +26,10 @@ class LinkApiIT extends IntegrationTest {
 
   @Test
   void followingAShortUrlRedirectsToItsLongUrl() {
-    shortCodes.willReturn("Rd1rect");
+    shortCodes.willReturn("Ab3xK9q");
     createLink("https://example.com/very/long");
 
-    assertThat(mvc.get().uri("/Rd1rect"))
+    assertThat(mvc.get().uri("/Ab3xK9q"))
         .hasStatus(302)
         .hasHeader("Location", "https://example.com/very/long")
         .hasHeader("Cache-Control", "no-store");
@@ -47,30 +42,30 @@ class LinkApiIT extends IntegrationTest {
 
   @Test
   void shorteningTheSameLongUrlTwiceCreatesTwoLinks() {
-    shortCodes.willReturn("Tw1ceAa", "Tw1ceBb");
+    shortCodes.willReturn("Ab3xK9q", "Zz9yX8w");
     createLink("https://example.com/same");
     createLink("https://example.com/same");
 
-    assertThat(mvc.get().uri("/Tw1ceAa")).hasHeader("Location", "https://example.com/same");
-    assertThat(mvc.get().uri("/Tw1ceBb")).hasHeader("Location", "https://example.com/same");
+    assertThat(mvc.get().uri("/Ab3xK9q")).hasHeader("Location", "https://example.com/same");
+    assertThat(mvc.get().uri("/Zz9yX8w")).hasHeader("Location", "https://example.com/same");
   }
 
   @Test
   void shortCodesAreCaseSensitive() {
-    shortCodes.willReturn("CaSe1Ab", "case1ab");
+    shortCodes.willReturn("Ab3xK9q", "ab3xk9q");
     createLink("https://example.com/upper");
     createLink("https://example.com/lower");
 
-    assertThat(mvc.get().uri("/CaSe1Ab")).hasHeader("Location", "https://example.com/upper");
-    assertThat(mvc.get().uri("/case1ab")).hasHeader("Location", "https://example.com/lower");
+    assertThat(mvc.get().uri("/Ab3xK9q")).hasHeader("Location", "https://example.com/upper");
+    assertThat(mvc.get().uri("/ab3xk9q")).hasHeader("Location", "https://example.com/lower");
   }
 
-  private void createLink(String longUrl) {
-    assertThat(
-            mvc.post()
-                .uri("/links")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"url\": \"" + longUrl + "\"}"))
-        .hasStatus(201);
+  @Test
+  void aLongUrlContainingAQuoteIsRejectedNotMisreadAsBrokenJson() {
+    assertThat(postLink("https://example.com/search?q=\"quoted\""))
+        .hasStatus(422)
+        .bodyJson()
+        .extractingPath("$.detail")
+        .isEqualTo("Only http:// and https:// web addresses can be shortened.");
   }
 }
