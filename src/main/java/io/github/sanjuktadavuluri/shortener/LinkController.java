@@ -21,6 +21,8 @@ class LinkController {
   static final String MALFORMED_REQUEST =
       "The request body must be JSON like {\"url\": \"https://example.com\"}.";
 
+  static final String NO_FREE_SHORT_CODE = "Couldn't find a free Short Code. Please try again.";
+
   private final LinkService linkService;
   private final LinkStore links;
 
@@ -55,6 +57,11 @@ class LinkController {
   @ExceptionHandler
   ProblemDetail rejected(RejectedLongUrlException e) {
     return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, e.rejectionReason());
+  }
+
+  @ExceptionHandler
+  ProblemDetail noFreeShortCode(NoFreeShortCodeException e) {
+    return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, NO_FREE_SHORT_CODE);
   }
 
   @ExceptionHandler({HttpMessageNotReadableException.class, MalformedRequestException.class})
