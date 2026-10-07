@@ -34,6 +34,7 @@ Request flows are drawn as sequence diagrams in [`docs/architecture.md`](docs/ar
 *Coming with the first implementation ticket.* The planned setup uses [uv](https://docs.astral.sh/uv/):
 
 ```bash
+git config core.hooksPath .githooks   # optional local guard; main is also protected on GitHub
 uv sync            # install dependencies
 uv run pytest      # run the test suite
 uv run fastapi dev # start the app on http://localhost:8000
