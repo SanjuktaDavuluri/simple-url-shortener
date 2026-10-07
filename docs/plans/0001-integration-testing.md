@@ -91,5 +91,5 @@ Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 
 ## 8. Tracking
 
-- Tracked by its own GitHub issue (label `plan`). Each phase's status is updated here in the PR that changes it.
+- Tracked by GitHub issue [#10](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/10) (label `plan`). Each phase's status is updated here in the PR that changes it.
 - Reviewed at the end of each wave.

@@ -6,4 +6,4 @@ Plans describe **how** we carry out a cross-cutting effort (testing, rollout, mi
 
 | # | Plan | Status | Related |
 |---|---|---|---|
-| 0001 | [Integration testing](0001-integration-testing.md) | active | Spec 0001; roadmap R5, R10, R11–R14 |
+| 0001 | [Integration testing](0001-integration-testing.md) ([#10](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/10)) | active | Spec 0001; roadmap R5, R10, R11–R14 |
