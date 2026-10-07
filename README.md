@@ -6,7 +6,12 @@ A small, backend-focused URL shortener, built in the open as a **complete SDLC c
 2. **Brownfield**: evolving the running system feature by feature.
 3. **Reliability**: making it production-grade, with measurements.
 
-> **Status:** Greenfield, wave 1, in progress: the JSON API is complete (create, Redirect, URL Rules, Collision handling), and the web page at `/` works with or without JavaScript (HTMX: no reload, copy button). Visual polish, accessibility and Lighthouse are next. **Track the work:** [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) · [Wave 1 milestone](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestone/1).
+> **Status:** **Wave 1 (greenfield) complete.** [Spec 0001](docs/specs/0001-v1-core.md) is implemented: the JSON API (create, Redirect, URL Rules, Collision handling) and the web page (works with or without JavaScript; Lighthouse 100 in every category). Wave 2 (production readiness) is next on the [roadmap](docs/roadmap.md). **Track the work:** [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) · [milestones](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestones).
+
+<p>
+  <img src="docs/images/web-page-light-desktop.png" alt="The web page in light mode on a desktop, showing a newly created Short URL with a Copy button" width="560">
+  <img src="docs/images/web-page-dark-phone-rejected.png" alt="The web page in dark mode on a phone, showing the Rejection Reason under the Long URL field" width="200">
+</p>
 
 ## What it does (v1)
 
@@ -37,6 +42,7 @@ You only need **JDK 25** (e.g. Temurin); the Maven Wrapper downloads Maven and e
 git config core.hooksPath .githooks   # optional local guard; main is also protected on GitHub
 ./mvnw verify                         # format check, compile, static analysis, unit + integration tests
 ./mvnw spotless:apply                 # fix formatting if verify complains
+(cd e2e && npm ci && BASE_URL=http://localhost:8000 npm run all)   # browser checks + Lighthouse; needs the app running and Chrome
 ./mvnw spring-boot:run                # start the app on http://localhost:8000
 ```
 

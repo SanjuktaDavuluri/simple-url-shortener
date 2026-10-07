@@ -10,7 +10,7 @@ Items within a wave are listed in the order they should be picked up.
 
 | Wave | Theme | Items in order | Why this order |
 |---|---|---|---|
-| **1** | **Greenfield v1**: build it, all tests green, CI | *(the core: no roadmap items)* | Nothing else makes sense until the core works and is tested |
+| **1** ✅ | **Greenfield v1**: build it, all tests green, CI. **Done:** spec 0001 implemented (#3–#8, #14, #16) | *(the core: no roadmap items)* | Nothing else makes sense until the core works and is tested |
 | **2** | **Production readiness** | R11 → R12 → R6 → R17 | Package it first (R11) so everything after runs the same way everywhere. Then make it operable with health checks, logs and config (R12). Then close the one security gap before it is exposed anywhere (R6) |
 | **3** | **Reliability & scalability, measured** | R13 → R5 → R14 → R15 → R7 | **Measure before changing**: a load-test baseline (R13) gives the numbers that justify the Postgres migration (R5). Failure testing (R14) runs against the real production setup. Scaling out (R15) needs Postgres first, and only then does code generation need revisiting (R7) |
 | **4** | **Feature evolution** (brownfield) | R16 (when released) → R10 → R2 → R1 → R3 → R4 → R9 | The clickstream (R10) comes first because click counts (R2) can be derived from it. Then the other features. R9 only if needed |

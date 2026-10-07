@@ -45,7 +45,7 @@ Hosting: **private GitHub repo** [SanjuktaDavuluri/simple-url-shortener](https:/
 
 ## Status
 
-- Phase: **Greenfield, wave 1, building.** Spec 0001 is broken into issues #3–#8 (order: #3 → {#4, #5}; #5 → #6 → #7 → #8). Build each ticket test-first (`tdd`) on its own `feat/<n>-…` branch, with a PR that `Closes #n`. CI (GitHub Actions: `./mvnw verify` on Temurin JDK 25) gates every PR. Domain glossary in `CONTEXT.md`: use its terms everywhere. Keep the README Status line current.
+- Phase: **Wave 1 (greenfield) complete** with #8: spec 0001 implemented. **Wave 2 (production readiness) starts only when the user says so**: then ticket roadmap items R11 → R12 → R6 → R17 (`/to-spec` for their spec, `/to-tickets` for issues), with a `Wave 2` milestone and board entries. CI has two jobs: **Verify** (`./mvnw verify`, required) and **Browser checks** (`e2e/`: Playwright + Lighthouse ≥ 90).
 - v1 scope (decided 2026-10-07): **core only**, i.e. shorten a long URL to a short code and redirect from it, via a JSON API plus a minimal web page. Planned brownfield features: custom aliases, click counts, expiring links. Accounts are out of scope.
 - Stack: **Java 25 (LTS) + Spring Boot 4.1.1**, built with the **Maven Wrapper** (`./mvnw`). See ADR 0001.
 - Data: SQLite through Spring `JdbcClient` (plain SQL, no ORM); schema by **Flyway** migrations. See ADR 0002.
