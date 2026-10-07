@@ -4,14 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 /** Issue #5: the Rule Set guards Link creation through the HTTP seam. */
 class RejectionIT extends IntegrationTest {
 
+  private static final String MALFORMED =
+      "The request body must be JSON like {\"url\": \"https://example.com\"}.";
+
   @Test
   void aRejectedLongUrlIsRefusedWithItsRejectionReason() {
-    assertThat(postLink("{\"url\": \"ftp://example.com/file\"}"))
+    assertThat(postLink("ftp://example.com/file"))
         .hasStatus(422)
         .bodyJson()
         .extractingPath("$.detail")
@@ -20,7 +22,7 @@ class RejectionIT extends IntegrationTest {
 
   @Test
   void aSelfLinkIsRefused() {
-    assertThat(postLink("{\"url\": \"" + BASE_URL + "/Ab3xK9q\"}"))
+    assertThat(postLink(BASE_URL + "/Ab3xK9q"))
         .hasStatus(422)
         .bodyJson()
         .extractingPath("$.detail")
@@ -28,40 +30,65 @@ class RejectionIT extends IntegrationTest {
   }
 
   @Test
-  void surroundingWhitespaceIsTrimmedBeforeTheRulesAndStorage() {
-    shortCodes.willReturn("Tr1mmed");
+  void aRejectedLongUrlCreatesNoLinkAndUsesNoShortCode() {
+    shortCodes.willReturn("Ab3xK9q");
 
-    assertThat(postLink("{\"url\": \"  https://example.com/padded \\t\"}"))
+    assertThat(postLink("ftp://example.com/file")).hasStatus(422);
+    assertThat(mvc.get().uri("/Ab3xK9q")).hasStatus(404);
+
+    assertThat(postLink("https://example.com/accepted"))
+        .hasStatus(201)
+        .bodyJson()
+        .extractingPath("$.short_code")
+        .isEqualTo("Ab3xK9q");
+  }
+
+  @Test
+  void rejectionsAreProblemDetails() {
+    assertThat(postLink("ftp://example.com/file"))
+        .hasStatus(422)
+        .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+        .bodyJson()
+        .isLenientlyEqualTo(
+            """
+            {"status": 422, "title": "Unprocessable Content", "instance": "/links"}
+            """);
+  }
+
+  @Test
+  void surroundingWhitespaceIsTrimmedBeforeTheRulesAndStorage() {
+    shortCodes.willReturn("Ab3xK9q");
+
+    assertThat(postLink("  https://example.com/padded \t"))
         .hasStatus(201)
         .bodyJson()
         .extractingPath("$.long_url")
         .isEqualTo("https://example.com/padded");
-    assertThat(mvc.get().uri("/Tr1mmed")).hasHeader("Location", "https://example.com/padded");
+    assertThat(mvc.get().uri("/Ab3xK9q")).hasHeader("Location", "https://example.com/padded");
   }
 
   @Test
   void aRequestThatIsNotJsonIsUnprocessable() {
-    assertThat(postLink("this is not json"))
+    assertThat(postBody("this is not json", MediaType.APPLICATION_JSON))
         .hasStatus(422)
+        .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
         .bodyJson()
         .extractingPath("$.detail")
-        .isEqualTo("The request body must be JSON like {\"url\": \"https://example.com\"}.");
+        .isEqualTo(MALFORMED);
   }
 
   @Test
   void aRequestWithoutAUrlIsUnprocessable() {
-    assertThat(postLink("{}"))
+    assertThat(postBody("{}", MediaType.APPLICATION_JSON))
         .hasStatus(422)
         .bodyJson()
         .extractingPath("$.detail")
-        .isEqualTo("The request body must be JSON like {\"url\": \"https://example.com\"}.");
+        .isEqualTo(MALFORMED);
   }
 
-  private MvcTestResult postLink(String body) {
-    return mvc.post()
-        .uri("/links")
-        .contentType(MediaType.APPLICATION_JSON)
-        .content(body)
-        .exchange();
+  @Test
+  void aRequestThatIsNotLabelledAsJsonIsAnUnsupportedMediaType() {
+    assertThat(postBody("url=https://example.com", MediaType.APPLICATION_FORM_URLENCODED))
+        .hasStatus(415);
   }
 }
