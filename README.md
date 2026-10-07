@@ -6,7 +6,7 @@ A small, backend-focused URL shortener, built in the open as a **complete SDLC c
 2. **Brownfield**: evolving the running system feature by feature.
 3. **Reliability**: making it production-grade, with measurements.
 
-> **Status:** Greenfield, wave 1, in progress. The JSON API creates Links and Redirects from them ([#3](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/3)), and refuses unsafe Long URLs with a clear Rejection Reason ([#5](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/5)). Collision handling and the web page follow in [#4, #6–#8](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues).
+> **Status:** Greenfield, wave 1, in progress: the JSON API is complete (create, Redirect, URL Rules, Collision handling); the web page is next. **Track the work:** [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) · [Wave 1 milestone](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestone/1).
 
 ## What it does (v1)
 
@@ -68,7 +68,7 @@ curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"u
 | Roadmap | [`docs/roadmap.md`](docs/roadmap.md) | Every deferred item, prioritised into waves and tracked to completion |
 | Architecture | [`docs/architecture.md`](docs/architecture.md) | Request flows (Mermaid) |
 | Specs | [`docs/specs/`](docs/specs/) | Numbered requirements with a status lifecycle; each traces to a roadmap item |
-| Tickets | GitHub Issues | Vertical-slice tickets; every change traces to one |
+| Tickets | GitHub Issues, on the [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) and grouped by [milestone](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestones) per wave | Vertical-slice tickets; every change traces to one |
 | Tests & CI | `src/test/`, GitHub Actions | Built test-first (TDD); unit + integration tests; CI gates every PR |
 | Plans | [`docs/plans/`](docs/plans/) | How cross-cutting work is verified and delivered, e.g. the [integration-testing plan](docs/plans/0001-integration-testing.md) |
 | Changelog, runbook, incidents | *(introduced in later phases)* | Release history and operational evidence |
