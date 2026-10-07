@@ -6,7 +6,7 @@ A small, backend-focused URL shortener, built in the open as a **complete SDLC c
 2. **Brownfield**: evolving the running system feature by feature.
 3. **Reliability**: making it production-grade, with measurements.
 
-> **Status:** Greenfield, wave 1. Design is settled (ADRs 0001–0006) and the domain glossary is written. **No application code yet.** Implementation starts next, test-first.
+> **Status:** Greenfield, wave 1, in progress. The JSON API can create a Link and Redirect from it ([#3](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/3)). Rules, Collision handling and the web page follow in [#4–#8](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues).
 
 ## What it does (v1)
 
@@ -31,18 +31,29 @@ Request flows are drawn as sequence diagrams in [`docs/architecture.md`](docs/ar
 
 ## Getting started
 
-*Arrives with the first implementation ticket ([#3](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/3)).* You only need **JDK 25** (e.g. Temurin); the Maven Wrapper downloads everything else.
+You only need **JDK 25** (e.g. Temurin); the Maven Wrapper downloads Maven and every dependency.
 
 ```bash
 git config core.hooksPath .githooks   # optional local guard; main is also protected on GitHub
 ./mvnw verify                         # format check, compile, static analysis, unit + integration tests
+./mvnw spotless:apply                 # fix formatting if verify complains
 ./mvnw spring-boot:run                # start the app on http://localhost:8000
+```
+
+Try it:
+
+```bash
+curl -s -X POST localhost:8000/links -H 'content-type: application/json' \
+     -d '{"url": "https://example.com/very/long"}'
+# {"short_code":"mFzrymu","short_url":"http://localhost:8000/mFzrymu","long_url":"https://example.com/very/long"}
+curl -si localhost:8000/mFzrymu    # 302, Location: https://example.com/very/long, Cache-Control: no-store
 ```
 
 | Setting | Default | Purpose |
 |---|---|---|
 | `BASE_URL` | `http://localhost:8000` | The shortener's public address; every Short URL starts with it |
-| `DATABASE_PATH` | `links.db` | Where the SQLite database file lives |
+| `DATABASE_PATH` | `links.db` | Where the SQLite database file lives (schema created by Flyway on startup) |
+| `PORT` | `8000` | HTTP port |
 
 ## How this project is run
 
