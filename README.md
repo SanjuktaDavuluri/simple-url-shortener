@@ -43,7 +43,8 @@ git config core.hooksPath .githooks   # optional local guard; main is also prote
 ./mvnw verify                         # format check, compile, static analysis, unit + integration tests
 ./mvnw spotless:apply                 # fix formatting if verify complains
 (cd e2e && npm ci && BASE_URL=http://localhost:8000 npm run all)   # browser checks + Lighthouse; needs the app running and Chrome
-./mvnw spring-boot:run                # start the app on http://localhost:8000
+./mvnw spring-boot:run                # start the app on http://localhost:8000 (foreground)
+scripts/local.sh start                # or: build and run it in the background (stop | restart | status | logs)
 ```
 
 Try it:
