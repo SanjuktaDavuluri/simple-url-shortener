@@ -46,9 +46,9 @@ How we prove that the parts of the shortener work **together**, across real boun
 | Phase | Wave | Scope | Exit criterion | Delivered by | Status |
 |---|---|---|---|---|---|
 | **P1: Walking skeleton** | 1 | Create → Redirect → 404 over the full context; persistence across a restart; Flyway migrates an empty database; one real-HTTP smoke test; production configuration (`BASE_URL` default) | All #3 acceptance criteria covered by `*IT` tests; green in CI | #3 | done ([#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12)) |
-| **P2: Collisions** | 1 | Scripted Collision then success; all 5 attempts collide → `503` | #4 criteria covered | #4 | in progress |
+| **P2: Collisions** | 1 | Scripted Collision then success; all 5 attempts collide → `503` | #4 criteria covered | #4 | done ([#18](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/18)) |
 | **P3: Rules through HTTP** | 1 | Each Rejection Reason surfaces as `422` via `POST /links`; malformed JSON → `422`. (Rule edge cases stay as **unit** tests.) | #5 criteria covered | #5 | done ([#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13)) |
-| **P4: Web page** | 1 | Full page renders; no-JS form post shows the Short URL; rejection shown inline with input preserved; HTMX request (`HX-Request: true`) returns only the fragment; both render the same fragment | #6 and #7 criteria covered | #6, #7 | not started |
+| **P4: Web page** | 1 | Full page renders; no-JS form post shows the Short URL; rejection shown inline with input preserved; HTMX request (`HX-Request: true`) returns only the fragment; both render the same fragment | #6 and #7 criteria covered | #6, #7 | in progress |
 | **P5: Container smoke** | 2 | Build the Docker image; start it with Testcontainers; health endpoint, create and Redirect over a real socket | Image-level `*SystemIT` green in CI | R11, R12 | planned |
 | **P6: Link Store contract suite** | 3 | One abstract contract test suite, run against **SQLite and PostgreSQL** (Testcontainers), proving both implementations behave identically, including duplicate Short Codes | Both implementations pass the same suite | R5 | planned |
 | **P7: Failure behaviour** | 3 | Database unavailable or slow; behaviour of health checks and error responses; recovery after restart | Documented, tested failure modes; incident write-ups for anything found | R14 | planned |
@@ -73,14 +73,18 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #14 | Wrong `Content-Type` → `415` | `RejectionIT` → `aRequestThatIsNotLabelledAsJsonIsAnUnsupportedMediaType` | ☑ [#15](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/15) |
 | #14 | Request bodies with characters that need JSON escaping reach the Rules intact | `LinkApiIT` → `aLongUrlContainingAQuoteIsRejectedNotMisreadAsBrokenJson` | ☑ [#15](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/15) |
 | #16 | A malformed Long URL gets the "isn't a valid web address" Rejection Reason through the API | `LinkApiIT` → `aLongUrlContainingAQuoteIsRejectedNotMisreadAsBrokenJson` (expectation updated) | ☑ [#17](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/17) |
-| #4 | A Collision is retried with the next Short Code; the existing Link is untouched | `CollisionIT` → `aCollisionIsRetriedWithTheNextShortCode` | ☑ #4 |
-| #4 | The 5th attempt can still succeed | `CollisionIT` → `theFifthAttemptCanStillSucceed` | ☑ #4 |
-| #4 | 5 Collisions → `503` problem detail; exactly 5 attempts (no 6th draw) | `CollisionIT` → `fiveCollisionsInARowFailWithAClearRetryableError` | ☑ #4 |
+| #4 | A Collision is retried with the next Short Code; the existing Link is untouched | `CollisionIT` → `aCollisionIsRetriedWithTheNextShortCode` | ☑ [#18](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/18) |
+| #4 | The 5th attempt can still succeed | `CollisionIT` → `theFifthAttemptCanStillSucceed` | ☑ [#18](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/18) |
+| #4 | 5 Collisions → `503` problem detail; exactly 5 attempts (no 6th draw) | `CollisionIT` → `fiveCollisionsInARowFailWithAClearRetryableError` | ☑ [#18](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/18) |
 | #5 | Rejected Long URL → `422` with Rejection Reason | `RejectionIT` → `aRejectedLongUrlIsRefusedWithItsRejectionReason` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
 | #5 | Self-link refused (Rule Set bound to the configured Base URL) | `RejectionIT` → `aSelfLinkIsRefused` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
 | #5 | Whitespace trimmed before Rules and storage | `RejectionIT` → `surroundingWhitespaceIsTrimmedBeforeTheRulesAndStorage` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
 | #5 | Malformed request (not JSON / no `url`) → `422` | `RejectionIT` → `aRequestThatIsNotJsonIsUnprocessable`, `aRequestWithoutAUrlIsUnprocessable` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
-| #6 | No-JS page flow, inline rejection | `WebPageIT` | ☐ |
+| #6 | `GET /` serves a page with one labelled field and one button | `WebPageIT` → `theHomePageOffersOneLabelledFieldAndOneButton` | ☑ #6 |
+| #6 | Plain HTML form post shows the Short URL (and it Redirects) | `WebPageIT` → `submittingTheFormShowsTheShortUrl` | ☑ #6 |
+| #6 | Rejection shown at the field (`aria-invalid`, `aria-describedby`), input preserved, `422` | `WebPageIT` → `aRejectedLongUrlShowsItsReasonAtTheFieldAndKeepsWhatWasTyped` | ☑ #6 |
+| #6 | Same create-Link logic as the API (Self-link rejected identically) | `WebPageIT` → `thePageAppliesTheSameRulesAsTheApi` | ☑ #6 |
+| #6 | No free Short Code → `503` page with the message | `WebPageIT` → `whenNoFreeShortCodeIsFoundThePageSaysSo` | ☑ #6 |
 | #7 | HTMX fragment vs full page | `WebPageHtmxIT` | ☐ |
 
 Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
