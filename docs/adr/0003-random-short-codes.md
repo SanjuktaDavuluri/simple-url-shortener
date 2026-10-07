@@ -5,14 +5,14 @@ date: 2026-10-07
 
 # Random 7-character base62 short codes, retried on collision
 
-Each short code is 7 characters drawn at random from `[a-zA-Z0-9]`, using a cryptographically secure source. If a generated code is already taken, we generate another and retry, up to a small fixed limit. This makes codes impossible to guess, and the space of about 3.5 × 10¹² codes keeps collisions rare at any scale this project will reach.
+Each short code is 7 characters drawn at random from `[a-zA-Z0-9]`, using a cryptographically secure source (`java.security.SecureRandom`). If a generated code is already taken, we generate another and retry, up to a small fixed limit. This makes codes impossible to guess, and the space of about 3.5 × 10¹² codes keeps collisions rare at any scale this project will reach.
 
 ## The generator is independent of the long URL
 
 Code generation is a standalone function that takes **no input**. It never sees the long URL. The URL is only paired with a code when the two are stored together:
 
 ```
-validate(url) → code = generate_code() → store.save(code, url)  ── code taken? → generate again (bounded)
+rules.check(url) → code = generator.next() → linkStore.save(code, url)  ── code taken? → generate again (bounded)
 ```
 
 See the sequence diagram in [`docs/architecture.md`](../architecture.md).

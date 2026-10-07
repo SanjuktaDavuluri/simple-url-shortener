@@ -1,15 +1,14 @@
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-.pytest_cache/
-.ruff_cache/
-.coverage
-htmlcov/
+# Build output
+target/
 
 # Local data
 *.db
-*.sqlite3
+*.db-journal
+
+# IDE
+.idea/
+*.iml
+.vscode/
 
 # Tooling / OS
 .DS_Store
