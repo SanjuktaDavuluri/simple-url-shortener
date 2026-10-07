@@ -2,11 +2,12 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <body>
 <!--/* The shortener: form, field, Rejection Reason and result in one fragment (ADR 0006).
-       The full page and (from #7) HTMX responses render this same fragment. */-->
+       The full page and HTMX responses render this same fragment. */-->
 <section id="shortener" th:fragment="shortener" aria-labelledby="shortener-heading">
   <h2 id="shortener-heading">Shorten a link</h2>
 
-  <form method="post" action="/" novalidate>
+  <form method="post" action="/" novalidate
+        hx-post="/" hx-target="#shortener" hx-swap="outerHTML">
     <label for="url">Long URL</label>
     <input id="url" name="url" type="text" inputmode="url" autocomplete="url"
            placeholder="https://example.com/a/very/long/address"
@@ -23,6 +24,7 @@
     <p th:if="${link != null}">
       Your Short URL:
       <a data-short-url th:href="${link.shortUrl()}" th:text="${link.shortUrl()}">Short URL</a>
+      <button type="button" data-copy th:attr="data-copy=${link.shortUrl()}" hidden>Copy</button>
     </p>
   </div>
 </section>

@@ -5,12 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Simple URL Shortener</title>
   <meta name="description" content="Turn a long web address into a short one you can share.">
+  <!--/* HTMX doesn't swap 4xx/5xx responses by default; swap Rejections (422) and
+         "no free Short Code" (503) so their messages appear inline (ADR 0006). */-->
+  <meta name="htmx-config" content='{"responseHandling": [{"code": "204", "swap": false}, {"code": "[23]..", "swap": true}, {"code": "422", "swap": true}, {"code": "503", "swap": true}, {"code": "[45]..", "swap": false, "error": true}]}'>
+  <script src="/js/htmx-2.0.11.min.js" defer></script>
+  <script src="/js/copy.js" defer></script>
 </head>
 <body>
   <main>
     <h1>Simple URL Shortener</h1>
     <p>Paste a long web address to get a short one you can share.</p>
     <div th:replace="~{fragments/shortener :: shortener}"></div>
+    <p id="status" role="status" aria-live="polite" class="visually-hidden"></p>
   </main>
 </body>
 </html>

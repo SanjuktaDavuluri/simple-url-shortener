@@ -80,12 +80,19 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #5 | Self-link refused (Rule Set bound to the configured Base URL) | `RejectionIT` → `aSelfLinkIsRefused` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
 | #5 | Whitespace trimmed before Rules and storage | `RejectionIT` → `surroundingWhitespaceIsTrimmedBeforeTheRulesAndStorage` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
 | #5 | Malformed request (not JSON / no `url`) → `422` | `RejectionIT` → `aRequestThatIsNotJsonIsUnprocessable`, `aRequestWithoutAUrlIsUnprocessable` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
-| #6 | `GET /` serves a page with one labelled field and one button | `WebPageIT` → `theHomePageOffersOneLabelledFieldAndOneButton` | ☑ #6 |
-| #6 | Plain HTML form post shows the Short URL (and it Redirects) | `WebPageIT` → `submittingTheFormShowsTheShortUrl` | ☑ #6 |
-| #6 | Rejection shown at the field (`aria-invalid`, `aria-describedby`), input preserved, `422` | `WebPageIT` → `aRejectedLongUrlShowsItsReasonAtTheFieldAndKeepsWhatWasTyped` | ☑ #6 |
-| #6 | Same create-Link logic as the API (Self-link rejected identically) | `WebPageIT` → `thePageAppliesTheSameRulesAsTheApi` | ☑ #6 |
-| #6 | No free Short Code → `503` page with the message | `WebPageIT` → `whenNoFreeShortCodeIsFoundThePageSaysSo` | ☑ #6 |
-| #7 | HTMX fragment vs full page | `WebPageHtmxIT` | ☐ |
+| #6 | `GET /` serves a page with one labelled field and one button | `WebPageIT` → `theHomePageOffersOneLabelledFieldAndOneButton` | ☑ [#19](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/19) |
+| #6 | Plain HTML form post shows the Short URL (and it Redirects) | `WebPageIT` → `submittingTheFormShowsTheShortUrl` | ☑ [#19](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/19) |
+| #6 | Rejection shown at the field (`aria-invalid`, `aria-describedby`), input preserved, `422` | `WebPageIT` → `aRejectedLongUrlShowsItsReasonAtTheFieldAndKeepsWhatWasTyped` | ☑ [#19](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/19) |
+| #6 | Same create-Link logic as the API (Self-link rejected identically) | `WebPageIT` → `thePageAppliesTheSameRulesAsTheApi` | ☑ [#19](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/19) |
+| #6 | No free Short Code → `503` page with the message | `WebPageIT` → `whenNoFreeShortCodeIsFoundThePageSaysSo` | ☑ [#19](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/19) |
+| #7 | Self-hosted HTMX loaded; form posts via `hx-post`, targets and swaps `#shortener` | `WebPageHtmxIT` → `thePageLoadsSelfHostedHtmxAndTheFormPostsThroughIt` | ☑ #7 |
+| #7 | HTMX request → only the fragment | `WebPageHtmxIT` → `anHtmxRequestReceivesOnlyTheShortenerFragment` | ☑ #7 |
+| #7 | Fragment and full page render identical markup | `WebPageHtmxIT` → `theFragmentAndTheFullPageRenderTheSameMarkup` | ☑ #7 |
+| #7 | Rejection returns as a fragment with the reason at the field | `WebPageHtmxIT` → `aRejectionComesBackAsAFragmentWithTheReasonAtTheField` | ☑ #7 |
+| #7 | HTMX configured to swap 422 and 503 | `WebPageHtmxIT` → `htmxIsConfiguredToSwapRejectionsAndFailures` | ☑ #7 |
+| #7 | Copy button present but hidden without JS | `WebPageHtmxIT` → `theShortUrlHasACopyButtonThatStaysHiddenWithoutJavaScript` | ☑ #7 |
+| #7 | Persistent status region outside the fragment | `WebPageHtmxIT` → `thePageHasAStatusRegionOutsideTheFragmentForAnnouncements` | ☑ #7 |
+| #7 | **In a real browser:** no reload, copy + "Copied ✓", clipboard, announcement, inline 422, focus to field, no JS errors; no-JS path works | Manual Playwright + Chrome run recorded in PR for #7 (14/14); **automated in CI by #8** | ☑ #7 (manual) |
 
 Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 
@@ -103,6 +110,7 @@ Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 | Shared context state (database, generator) leaks between tests | Reset before every test (Flyway clean + migrate, empty script); proven by a mutation check that disabling the reset breaks the suite (#14) |
 | SQLite file locking between parallel tests | One database file per Spring test context; integration tests run sequentially in wave 1 |
 | `MockMvcTester` hides servlet-container behaviour (headers, redirects) | The single real-HTTP smoke test (`RedirectOverHttpIT`) |
+| JVM tests can't execute the page's JavaScript (HTMX swaps, copy button, focus, announcements) | #7 verified these in real Chrome (Playwright, manual run recorded in its PR); #8 automates browser checks in CI next to Lighthouse |
 | Behaviour differs between SQLite and PostgreSQL | Contract suite in P6 before the R5 migration ships |
 
 ## 8. Tracking
