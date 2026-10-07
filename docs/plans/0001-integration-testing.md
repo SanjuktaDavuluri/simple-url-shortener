@@ -44,9 +44,9 @@ How we prove that the parts of the shortener work **together**, across real boun
 
 | Phase | Wave | Scope | Exit criterion | Delivered by | Status |
 |---|---|---|---|---|---|
-| **P1: Walking skeleton** | 1 | Create → Redirect → 404 over the full context; persistence across a restart; Flyway migrates an empty database; one real-HTTP smoke test; production configuration (`BASE_URL` default) | All #3 acceptance criteria covered by `*IT` tests; green in CI | #3 | in progress |
+| **P1: Walking skeleton** | 1 | Create → Redirect → 404 over the full context; persistence across a restart; Flyway migrates an empty database; one real-HTTP smoke test; production configuration (`BASE_URL` default) | All #3 acceptance criteria covered by `*IT` tests; green in CI | #3 | done ([#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12)) |
 | **P2: Collisions** | 1 | Scripted Collision then success; all 5 attempts collide → `503` | #4 criteria covered | #4 | not started |
-| **P3: Rules through HTTP** | 1 | Each Rejection Reason surfaces as `422` via `POST /links`; malformed JSON → `422`. (Rule edge cases stay as **unit** tests.) | #5 criteria covered | #5 | not started |
+| **P3: Rules through HTTP** | 1 | Each Rejection Reason surfaces as `422` via `POST /links`; malformed JSON → `422`. (Rule edge cases stay as **unit** tests.) | #5 criteria covered | #5 | in progress |
 | **P4: Web page** | 1 | Full page renders; no-JS form post shows the Short URL; rejection shown inline with input preserved; HTMX request (`HX-Request: true`) returns only the fragment; both render the same fragment | #6 and #7 criteria covered | #6, #7 | not started |
 | **P5: Container smoke** | 2 | Build the Docker image; start it with Testcontainers; health endpoint, create and Redirect over a real socket | Image-level `*SystemIT` green in CI | R11, R12 | planned |
 | **P6: Link Store contract suite** | 3 | One abstract contract test suite, run against **SQLite and PostgreSQL** (Testcontainers), proving both implementations behave identically, including duplicate Short Codes | Both implementations pass the same suite | R5 | planned |
@@ -59,16 +59,19 @@ How we prove that the parts of the shortener work **together**, across real boun
 
 | Issue | Acceptance criterion | Integration test (class → method) | Status |
 |---|---|---|---|
-| #3 | `POST /links` → `201` with `short_code`, `short_url`, `long_url` | `LinkApiIT` → `creatingALinkReturnsItsShortUrl` | ☑ #3 |
-| #3 | `GET /{code}` → `302`, `Location`, `Cache-Control: no-store` | `LinkApiIT` → `followingAShortUrlRedirectsToItsLongUrl` | ☑ #3 |
-| #3 | Unknown Short Code → `404` | `LinkApiIT` → `anUnknownShortCodeIsNotFound` | ☑ #3 |
-| #3 | Short Codes are case-sensitive | `LinkApiIT` → `shortCodesAreCaseSensitive` | ☑ #3 |
-| #3 | Same Long URL twice → two Links | `LinkApiIT` → `shorteningTheSameLongUrlTwiceCreatesTwoLinks` | ☑ #3 |
-| #3 | Links persist across restarts; the database enforces unique Short Codes | `PersistenceIT` → `linksSurviveARestart` | ☑ #3 |
-| #3 | Production config: `BASE_URL` default | `ConfigurationIT` → `shortUrlsDefaultToLocalhostWithRealShortCodes` | ☑ #3 |
-| #3 | Real HTTP sends the specified Redirect headers | `RedirectOverHttpIT` → `aRealHttpClientReceivesTheRedirectAsSpecified` | ☑ #3 |
+| #3 | `POST /links` → `201` with `short_code`, `short_url`, `long_url` | `LinkApiIT` → `creatingALinkReturnsItsShortUrl` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
+| #3 | `GET /{code}` → `302`, `Location`, `Cache-Control: no-store` | `LinkApiIT` → `followingAShortUrlRedirectsToItsLongUrl` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
+| #3 | Unknown Short Code → `404` | `LinkApiIT` → `anUnknownShortCodeIsNotFound` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
+| #3 | Short Codes are case-sensitive | `LinkApiIT` → `shortCodesAreCaseSensitive` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
+| #3 | Same Long URL twice → two Links | `LinkApiIT` → `shorteningTheSameLongUrlTwiceCreatesTwoLinks` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
+| #3 | Links persist across restarts; the database enforces unique Short Codes | `PersistenceIT` → `linksSurviveARestart` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
+| #3 | Production config: `BASE_URL` default | `ConfigurationIT` → `shortUrlsDefaultToLocalhostWithRealShortCodes` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
+| #3 | Real HTTP sends the specified Redirect headers | `RedirectOverHttpIT` → `aRealHttpClientReceivesTheRedirectAsSpecified` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
 | #4 | Collision retried; 5 Collisions → `503` | `CollisionIT` | ☐ |
-| #5 | Rejected Long URL → `422` with Rejection Reason; malformed request → `422` | `RejectionIT` | ☐ |
+| #5 | Rejected Long URL → `422` with Rejection Reason | `RejectionIT` → `aRejectedLongUrlIsRefusedWithItsRejectionReason` | ☑ #5 |
+| #5 | Self-link refused (Rule Set bound to the configured Base URL) | `RejectionIT` → `aSelfLinkIsRefused` | ☑ #5 |
+| #5 | Whitespace trimmed before Rules and storage | `RejectionIT` → `surroundingWhitespaceIsTrimmedBeforeTheRulesAndStorage` | ☑ #5 |
+| #5 | Malformed request (not JSON / no `url`) → `422` | `RejectionIT` → `aRequestThatIsNotJsonIsUnprocessable`, `aRequestWithoutAUrlIsUnprocessable` | ☑ #5 |
 | #6 | No-JS page flow, inline rejection | `WebPageIT` | ☐ |
 | #7 | HTMX fragment vs full page | `WebPageHtmxIT` | ☐ |
 
