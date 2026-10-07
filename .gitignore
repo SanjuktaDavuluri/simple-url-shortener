@@ -14,3 +14,7 @@ target/
 .DS_Store
 .scratch/
 .claude/settings.local.json
+
+# Browser checks (e2e/)
+e2e/node_modules/
+e2e/reports/

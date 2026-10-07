@@ -41,7 +41,11 @@ class LinkController {
     return new CreatedLink(link.shortCode(), link.shortUrl(), link.longUrl());
   }
 
-  @GetMapping("/{shortCode}")
+  /**
+   * Follows a Short URL. Only 7-character base62 paths can be Short Codes (ADR 0003), so other
+   * single-segment paths such as {@code /favicon.ico} fall through to static resources.
+   */
+  @GetMapping("/{shortCode:[A-Za-z0-9]{7}}")
   ResponseEntity<Void> followLink(@PathVariable String shortCode) {
     return links
         .findLongUrl(shortCode)

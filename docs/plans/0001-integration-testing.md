@@ -16,6 +16,7 @@ How we prove that the parts of the shortener work **together**, across real boun
 | **Unit** | One unit in isolation: a Rule, the Rule Set, the Short Code generator | Maven **Surefire** (`test` phase) | `*Test` | milliseconds |
 | **Integration** | The real application wired by Spring, over real infrastructure: HTTP layer, the create-Link service, Link Store, SQLite file, Flyway migrations | Maven **Failsafe** (`integration-test` / `verify` phases) | `*IT` | < 30 s for the whole suite in wave 1 |
 | **System / container** (wave 2+) | The packaged artifact or Docker image, over a real network socket | Failsafe + Testcontainers | `*SystemIT` | minutes |
+| **Browser** (since #8) | The running app in real Chrome: JavaScript behaviour, accessibility wiring, Lighthouse | Playwright + Lighthouse in `e2e/`, CI job **Browser checks** | `e2e/*.js` | ~1 min |
 | **Performance & resilience** (wave 3) | Load and failure behaviour | Separate tooling (R13, R14), not part of `verify` | — | — |
 
 `./mvnw verify` runs **unit and integration** tests, locally and in CI. A PR cannot merge unless both pass.
@@ -48,7 +49,7 @@ How we prove that the parts of the shortener work **together**, across real boun
 | **P1: Walking skeleton** | 1 | Create → Redirect → 404 over the full context; persistence across a restart; Flyway migrates an empty database; one real-HTTP smoke test; production configuration (`BASE_URL` default) | All #3 acceptance criteria covered by `*IT` tests; green in CI | #3 | done ([#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12)) |
 | **P2: Collisions** | 1 | Scripted Collision then success; all 5 attempts collide → `503` | #4 criteria covered | #4 | done ([#18](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/18)) |
 | **P3: Rules through HTTP** | 1 | Each Rejection Reason surfaces as `422` via `POST /links`; malformed JSON → `422`. (Rule edge cases stay as **unit** tests.) | #5 criteria covered | #5 | done ([#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13)) |
-| **P4: Web page** | 1 | Full page renders; no-JS form post shows the Short URL; rejection shown inline with input preserved; HTMX request (`HX-Request: true`) returns only the fragment; both render the same fragment | #6 and #7 criteria covered | #6, #7 | in progress |
+| **P4: Web page** | 1 | Full page renders; no-JS form post shows the Short URL; rejection shown inline with input preserved; HTMX request (`HX-Request: true`) returns only the fragment; both render the same fragment | #6 and #7 criteria covered | #6, #7, #8 | done ([#19](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/19), [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20), #8) |
 | **P5: Container smoke** | 2 | Build the Docker image; start it with Testcontainers; health endpoint, create and Redirect over a real socket | Image-level `*SystemIT` green in CI | R11, R12 | planned |
 | **P6: Link Store contract suite** | 3 | One abstract contract test suite, run against **SQLite and PostgreSQL** (Testcontainers), proving both implementations behave identically, including duplicate Short Codes | Both implementations pass the same suite | R5 | planned |
 | **P7: Failure behaviour** | 3 | Database unavailable or slow; behaviour of health checks and error responses; recovery after restart | Documented, tested failure modes; incident write-ups for anything found | R14 | planned |
@@ -68,6 +69,10 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #3 | Links persist across restarts; the database enforces unique Short Codes | `PersistenceIT` → `linksSurviveARestart` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
 | #3 | Production config: `BASE_URL` default | `ConfigurationIT` → `shortUrlsDefaultToLocalhostWithRealShortCodes` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
 | #3 | Real HTTP sends the specified Redirect headers | `RedirectOverHttpIT` → `aRealHttpClientReceivesTheRedirectAsSpecified` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
+| #8 | Favicon, `robots.txt` and stylesheet served; non-Short-Code paths no longer hit the Short Code route | `PageAssetsIT` (5 tests) | ☑ #8 |
+| #8 | Status region visually hidden but announced | `PageAssetsIT` → `theStatusRegionIsVisuallyHiddenButStillAnnounced` | ☑ #8 |
+| #8 | **Browser checks in CI:** no reload, copy + clipboard, announcements, inline 422, focus, no JS errors, no 404s, favicon, no-JS path | `e2e/browser-checks.js` (16 checks), CI job **Browser checks** | ☑ #8 |
+| #8 | **Lighthouse ≥ 90** in every category, mobile and desktop | `e2e/lighthouse.js`, CI job **Browser checks** (reports uploaded) | ☑ #8 |
 | #14 | A rejected Long URL creates no Link and uses no Short Code | `RejectionIT` → `aRejectedLongUrlCreatesNoLinkAndUsesNoShortCode` | ☑ [#15](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/15) |
 | #14 | Errors are `application/problem+json` with status, title, instance | `RejectionIT` → `rejectionsAreProblemDetails` | ☑ [#15](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/15) |
 | #14 | Wrong `Content-Type` → `415` | `RejectionIT` → `aRequestThatIsNotLabelledAsJsonIsAnUnsupportedMediaType` | ☑ [#15](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/15) |
@@ -85,14 +90,14 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #6 | Rejection shown at the field (`aria-invalid`, `aria-describedby`), input preserved, `422` | `WebPageIT` → `aRejectedLongUrlShowsItsReasonAtTheFieldAndKeepsWhatWasTyped` | ☑ [#19](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/19) |
 | #6 | Same create-Link logic as the API (Self-link rejected identically) | `WebPageIT` → `thePageAppliesTheSameRulesAsTheApi` | ☑ [#19](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/19) |
 | #6 | No free Short Code → `503` page with the message | `WebPageIT` → `whenNoFreeShortCodeIsFoundThePageSaysSo` | ☑ [#19](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/19) |
-| #7 | Self-hosted HTMX loaded; form posts via `hx-post`, targets and swaps `#shortener` | `WebPageHtmxIT` → `thePageLoadsSelfHostedHtmxAndTheFormPostsThroughIt` | ☑ #7 |
-| #7 | HTMX request → only the fragment | `WebPageHtmxIT` → `anHtmxRequestReceivesOnlyTheShortenerFragment` | ☑ #7 |
-| #7 | Fragment and full page render identical markup | `WebPageHtmxIT` → `theFragmentAndTheFullPageRenderTheSameMarkup` | ☑ #7 |
-| #7 | Rejection returns as a fragment with the reason at the field | `WebPageHtmxIT` → `aRejectionComesBackAsAFragmentWithTheReasonAtTheField` | ☑ #7 |
-| #7 | HTMX configured to swap 422 and 503 | `WebPageHtmxIT` → `htmxIsConfiguredToSwapRejectionsAndFailures` | ☑ #7 |
-| #7 | Copy button present but hidden without JS | `WebPageHtmxIT` → `theShortUrlHasACopyButtonThatStaysHiddenWithoutJavaScript` | ☑ #7 |
-| #7 | Persistent status region outside the fragment | `WebPageHtmxIT` → `thePageHasAStatusRegionOutsideTheFragmentForAnnouncements` | ☑ #7 |
-| #7 | **In a real browser:** no reload, copy + "Copied ✓", clipboard, announcement, inline 422, focus to field, no JS errors; no-JS path works | Manual Playwright + Chrome run recorded in PR for #7 (14/14); **automated in CI by #8** | ☑ #7 (manual) |
+| #7 | Self-hosted HTMX loaded; form posts via `hx-post`, targets and swaps `#shortener` | `WebPageHtmxIT` → `thePageLoadsSelfHostedHtmxAndTheFormPostsThroughIt` | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) |
+| #7 | HTMX request → only the fragment | `WebPageHtmxIT` → `anHtmxRequestReceivesOnlyTheShortenerFragment` | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) |
+| #7 | Fragment and full page render identical markup | `WebPageHtmxIT` → `theFragmentAndTheFullPageRenderTheSameMarkup` | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) |
+| #7 | Rejection returns as a fragment with the reason at the field | `WebPageHtmxIT` → `aRejectionComesBackAsAFragmentWithTheReasonAtTheField` | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) |
+| #7 | HTMX configured to swap 422 and 503 | `WebPageHtmxIT` → `htmxIsConfiguredToSwapRejectionsAndFailures` | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) |
+| #7 | Copy button present but hidden without JS | `WebPageHtmxIT` → `theShortUrlHasACopyButtonThatStaysHiddenWithoutJavaScript` | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) |
+| #7 | Persistent status region outside the fragment | `WebPageHtmxIT` → `thePageHasAStatusRegionOutsideTheFragmentForAnnouncements` | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) |
+| #7 | **In a real browser:** no reload, copy + "Copied ✓", clipboard, announcement, inline 422, focus to field, no JS errors; no-JS path works | Manual Playwright + Chrome run recorded in PR for #7 (14/14); **automated in CI by #8** | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) (manual); automated in CI by #8 |
 
 Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 
@@ -110,7 +115,7 @@ Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 | Shared context state (database, generator) leaks between tests | Reset before every test (Flyway clean + migrate, empty script); proven by a mutation check that disabling the reset breaks the suite (#14) |
 | SQLite file locking between parallel tests | One database file per Spring test context; integration tests run sequentially in wave 1 |
 | `MockMvcTester` hides servlet-container behaviour (headers, redirects) | The single real-HTTP smoke test (`RedirectOverHttpIT`) |
-| JVM tests can't execute the page's JavaScript (HTMX swaps, copy button, focus, announcements) | #7 verified these in real Chrome (Playwright, manual run recorded in its PR); #8 automates browser checks in CI next to Lighthouse |
+| JVM tests can't execute the page's JavaScript (HTMX swaps, copy button, focus, announcements) | `e2e/` browser checks in real Chrome, run in CI (job **Browser checks**) on every PR since #8 |
 | Behaviour differs between SQLite and PostgreSQL | Contract suite in P6 before the R5 migration ships |
 
 ## 8. Tracking

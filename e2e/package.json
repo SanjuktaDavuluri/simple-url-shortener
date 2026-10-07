@@ -1,0 +1,16 @@
+{
+  "name": "simple-url-shortener-e2e",
+  "private": true,
+  "description": "Browser checks and Lighthouse for the web page (plan 0001; issue #8). Runs against an already started app.",
+  "type": "commonjs",
+  "scripts": {
+    "browser-checks": "node browser-checks.js",
+    "lighthouse": "node lighthouse.js",
+    "all": "node browser-checks.js && node lighthouse.js"
+  },
+  "dependencies": {
+    "chrome-launcher": "1.2.2",
+    "lighthouse": "13.5.0",
+    "playwright-core": "1.63.0"
+  }
+}

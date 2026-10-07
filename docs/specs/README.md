@@ -8,4 +8,4 @@ Specs record **what** we are building and why it matters to its users. They pair
 
 | # | Spec | Status | Roadmap |
 |---|---|---|---|
-| 0001 | [v1 core: shorten and Redirect](0001-v1-core.md) | in-progress | core (wave 1): tickets [#3–#8](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues) |
+| 0001 | [v1 core: shorten and Redirect](0001-v1-core.md) | implemented | core (wave 1): tickets [#3–#8](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues) |

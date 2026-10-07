@@ -33,3 +33,62 @@ jobs:
           path: |
             target/surefire-reports/
             target/failsafe-reports/
+
+  browser:
+    name: Browser checks (Playwright + Lighthouse)
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: http://localhost:8000
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK 25 (Temurin)
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Build the app
+        run: ./mvnw -B -DskipTests package
+
+      - name: Start the app
+        run: |
+          PORT=8000 DATABASE_PATH="$RUNNER_TEMP/links.db" \
+            java -jar target/simple-url-shortener-*.jar > "$RUNNER_TEMP/app.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null "$BASE_URL/" && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/app.log"
+          exit 1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install browser-check tooling
+        working-directory: e2e
+        run: npm ci
+
+      - name: Browser checks (real Chrome)
+        working-directory: e2e
+        run: npm run browser-checks
+
+      - name: Lighthouse (every category >= 90, mobile and desktop)
+        working-directory: e2e
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: npm run lighthouse
+
+      - name: Upload Lighthouse reports and app log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lighthouse-reports
+          path: |
+            e2e/reports/
+            ${{ runner.temp }}/app.log
