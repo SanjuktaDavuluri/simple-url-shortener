@@ -10,9 +10,9 @@ The code generator takes **no input**; it never sees the long URL (ADR 0003). Th
 sequenceDiagram
     autonumber
     actor Client
-    participant API as API (FastAPI)
-    participant Gen as generate_code()
-    participant Store as LinkStore (SQLite)
+    participant API as API (Spring MVC)
+    participant Gen as ShortCodeGenerator
+    participant Store as LinkStore (JdbcClient + SQLite)
 
     Client->>API: POST /links {"url": "https://example.com/very/long"}
     API->>API: validate(url)
@@ -20,7 +20,7 @@ sequenceDiagram
         API-->>Client: 422 Unprocessable Entity
     else valid URL
         loop until saved or max attempts reached
-            API->>Gen: generate_code()
+            API->>Gen: next()
             Gen-->>API: "Ab3xK9q" (7 random base62 chars)
             API->>Store: save(code, url)
             alt code already taken
@@ -43,8 +43,8 @@ sequenceDiagram
 sequenceDiagram
     autonumber
     actor Client
-    participant API as API (FastAPI)
-    participant Store as LinkStore (SQLite)
+    participant API as API (Spring MVC)
+    participant Store as LinkStore (JdbcClient + SQLite)
 
     Client->>API: GET /Ab3xK9q
     API->>Store: get("Ab3xK9q")

@@ -33,6 +33,7 @@ Approved 2026-10-07. Introduce each one **only when its phase arrives**, so the 
 | Greenfield | Domain glossary | `CONTEXT.md` |
 | All | Roadmap / deferral log: every postponed item is logged, then turned into a spec (`/to-spec`) and tickets (`/to-tickets`) when picked up | `docs/roadmap.md` |
 | All | Architecture diagrams (Mermaid) | `docs/architecture.md` |
+| All | Plans (numbered, with status; tracked by a GitHub issue labelled `plan`) | `docs/plans/NNNN-<slug>.md`, indexed in `docs/plans/README.md` (added 2026-10-07) |
 | All | Tickets | GitHub Issues in the private repo, each linking to its spec (decided 2026-10-07) |
 | All | Git history: branch + PR per ticket, conventional commits | Private GitHub repo, created when prototyping ends |
 | All | TDD tests, CI (lint + tests) | GitHub Actions |
@@ -43,15 +44,18 @@ Hosting: **private GitHub repo** [SanjuktaDavuluri/simple-url-shortener](https:/
 
 ## Status
 
-- Phase: **Greenfield, wave 1**. Design grilling concluded 2026-10-07 (ADRs 0001–0006). Domain glossary written in `CONTEXT.md`; use its terms everywhere. `README.md` exists; keep its Status line current. Next: spec and tickets (`/to-spec`, `/to-tickets`), then build test-first (`tdd`). Later waves are in `docs/roadmap.md`.
+- Phase: **Greenfield, wave 1, building.** Spec 0001 is broken into issues #3–#8 (order: #3 → {#4, #5}; #5 → #6 → #7 → #8). Build each ticket test-first (`tdd`) on its own `feat/<n>-…` branch, with a PR that `Closes #n`. CI (GitHub Actions: `./mvnw verify` on Temurin JDK 25) gates every PR. Domain glossary in `CONTEXT.md`: use its terms everywhere. Keep the README Status line current.
 - v1 scope (decided 2026-10-07): **core only**, i.e. shorten a long URL to a short code and redirect from it, via a JSON API plus a minimal web page. Planned brownfield features: custom aliases, click counts, expiring links. Accounts are out of scope.
-- Stack: **Python 3.14 + FastAPI + pytest**, managed with uv. See ADR 0001.
+- Stack: **Java 25 (LTS) + Spring Boot 4.1.1**, built with the **Maven Wrapper** (`./mvnw`). See ADR 0001.
+- Data: SQLite through Spring `JdbcClient` (plain SQL, no ORM); schema by **Flyway** migrations. See ADR 0002.
+- Tests & quality: JUnit 5 + AssertJ; unit tests `*Test` (Surefire), integration tests `*IT` (Failsafe) through `@SpringBootTest` + `MockMvcTester` with a `@TempDir` SQLite file and a scripted `ShortCodeGenerator` bean; Spotless (google-java-format) + Error Prone. `./mvnw verify` is the single local and CI entry point. Integration testing follows `docs/plans/0001-integration-testing.md`: update its matrix in each ticket's PR.
+- Java packages: base `io.github.sanjuktadavuluri.shortener`; Rules live in its `rules` sub-package.
 - Storage: **SQLite**, kept behind one storage interface so a later move to PostgreSQL is a contained change. See ADR 0002.
 - Short codes: **random 7-char base62, retry on collision**. See ADR 0003. Specified in `docs/specs/0001-v1-core.md`.
-- URL validation v1 (decided 2026-10-07): http/https with a host, at most 2048 chars, and links back to our own domain are refused. Rules live as a **separate rule entity**, not inline in the pipeline. See ADR 0004 (separate `url_rules` module).
+- URL validation v1 (decided 2026-10-07): http/https with a host, at most 2048 chars, and links back to our own domain are refused. Rules live as a **separate rule entity**, not inline in the pipeline. See ADR 0004 (separate `rules` package).
 - Duplicate long URLs: **a new link every time**. This follows from ADR 0003. Flows are in `docs/architecture.md`.
 - Redirects: **302 Found**, so every click passes through us (audit and clickstream foundation). See ADR 0005.
-- Web page: **server-rendered (FastAPI + Jinja2)**, because this is a backend-focused project. It calls the same create-link logic as the API, with no duplicate path. Quality bar: it must look and feel **current state of the art**, not a bare form. HTMX progressive enhancement plus 6 acceptance criteria (Lighthouse ≥ 90). See ADR 0006.
+- Web page: **server-rendered (Spring MVC + Thymeleaf)**, because this is a backend-focused project. It calls the same create-link logic as the API, with no duplicate path. Quality bar: it must look and feel **current state of the art**, not a bare form. HTMX progressive enhancement plus 6 acceptance criteria (Lighthouse ≥ 90). See ADR 0006.
 - Public address: the `BASE_URL` setting (default `http://localhost:8000`) builds short links and drives the "no links to ourselves" rule.
 
 ## Agent skills
