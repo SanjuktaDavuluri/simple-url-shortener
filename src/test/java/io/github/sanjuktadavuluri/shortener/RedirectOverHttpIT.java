@@ -6,7 +6,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,8 +29,8 @@ class RedirectOverHttpIT {
   @Autowired ScriptedShortCodeGenerator shortCodes;
 
   @DynamicPropertySource
-  static void configure(DynamicPropertyRegistry registry) throws Exception {
-    Path database = Files.createTempDirectory("shortener-http-it-").resolve("links.db");
+  static void configure(DynamicPropertyRegistry registry) {
+    Path database = TestDatabases.newFile();
     registry.add("shortener.database-path", database::toString);
   }
 
@@ -40,7 +39,7 @@ class RedirectOverHttpIT {
 
   @Test
   void aRealHttpClientReceivesTheRedirectAsSpecified() throws Exception {
-    shortCodes.willReturn("H77pRdr");
+    shortCodes.willReturn("Ab3xK9q");
     HttpResponse<String> created =
         http.send(
             HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/links"))
@@ -52,7 +51,7 @@ class RedirectOverHttpIT {
 
     HttpResponse<Void> redirect =
         http.send(
-            HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/H77pRdr")).build(),
+            HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/Ab3xK9q")).build(),
             HttpResponse.BodyHandlers.discarding());
 
     assertThat(redirect.statusCode()).isEqualTo(302);
