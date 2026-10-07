@@ -68,10 +68,11 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #3 | Links persist across restarts; the database enforces unique Short Codes | `PersistenceIT` → `linksSurviveARestart` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
 | #3 | Production config: `BASE_URL` default | `ConfigurationIT` → `shortUrlsDefaultToLocalhostWithRealShortCodes` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
 | #3 | Real HTTP sends the specified Redirect headers | `RedirectOverHttpIT` → `aRealHttpClientReceivesTheRedirectAsSpecified` | ☑ [#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12) |
-| #14 | A rejected Long URL creates no Link and uses no Short Code | `RejectionIT` → `aRejectedLongUrlCreatesNoLinkAndUsesNoShortCode` | ☑ #14 |
-| #14 | Errors are `application/problem+json` with status, title, instance | `RejectionIT` → `rejectionsAreProblemDetails` | ☑ #14 |
-| #14 | Wrong `Content-Type` → `415` | `RejectionIT` → `aRequestThatIsNotLabelledAsJsonIsAnUnsupportedMediaType` | ☑ #14 |
-| #14 | Request bodies with characters that need JSON escaping reach the Rules intact | `LinkApiIT` → `aLongUrlContainingAQuoteIsRejectedNotMisreadAsBrokenJson` | ☑ #14 |
+| #14 | A rejected Long URL creates no Link and uses no Short Code | `RejectionIT` → `aRejectedLongUrlCreatesNoLinkAndUsesNoShortCode` | ☑ [#15](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/15) |
+| #14 | Errors are `application/problem+json` with status, title, instance | `RejectionIT` → `rejectionsAreProblemDetails` | ☑ [#15](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/15) |
+| #14 | Wrong `Content-Type` → `415` | `RejectionIT` → `aRequestThatIsNotLabelledAsJsonIsAnUnsupportedMediaType` | ☑ [#15](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/15) |
+| #14 | Request bodies with characters that need JSON escaping reach the Rules intact | `LinkApiIT` → `aLongUrlContainingAQuoteIsRejectedNotMisreadAsBrokenJson` | ☑ [#15](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/15) |
+| #16 | A malformed Long URL gets the "isn't a valid web address" Rejection Reason through the API | `LinkApiIT` → `aLongUrlContainingAQuoteIsRejectedNotMisreadAsBrokenJson` (expectation updated) | ☑ #16 |
 | #4 | Collision retried; 5 Collisions → `503` | `CollisionIT` | ☐ |
 | #5 | Rejected Long URL → `422` with Rejection Reason | `RejectionIT` → `aRejectedLongUrlIsRefusedWithItsRejectionReason` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |
 | #5 | Self-link refused (Rule Set bound to the configured Base URL) | `RejectionIT` → `aSelfLinkIsRefused` | ☑ [#13](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/13) |

@@ -7,7 +7,7 @@ date: 2026-10-07
 
 Every check on a submitted long URL is a **rule**. A rule is a small, independent unit that takes a URL and returns *pass* or a *rejection reason*. Rules live in their own `rules` package (behind a `Rule` interface), and a **rule set** lists the rules that are active. The create-link flow makes one call, `rules.check(url)`, and knows nothing about individual rules. Each rule has its own tests, and a new rule is added as a new unit plus an entry in the rule set, without touching the core flow.
 
-v1 ships three rules: the scheme must be `http`/`https`, the URL must have a host and be at most 2048 characters, and it must not point back to the shortener's own domain.
+The v1 Rule Set, in order: the URL must be well-formed, its scheme must be `http`/`https`, it must have a host, it must be at most 2048 characters, and it must not point back to the shortener's own domain (a Self-link). The well-formed Rule was added in #16 as a new class plus one Rule Set entry, with no change to the create-link flow. It was the first use of the extension path this ADR sets up.
 
 ## Why a seam here at all
 
