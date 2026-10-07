@@ -6,7 +6,7 @@ A small, backend-focused URL shortener, built in the open as a **complete SDLC c
 2. **Brownfield**: evolving the running system feature by feature.
 3. **Reliability**: making it production-grade, with measurements.
 
-> **Status:** Greenfield, wave 1. Design is settled (ADRs 0001–0006) and the domain glossary is written. **No application code yet.** Implementation starts next, test-first.
+> **Status:** Greenfield, wave 1, in progress. The JSON API can create a Link and Redirect from it ([#3](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/3)). Rules, Collision handling and the web page come in [#4–#8](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues).
 
 ## What it does (v1)
 
@@ -31,16 +31,29 @@ Request flows are drawn as sequence diagrams in [`docs/architecture.md`](docs/ar
 
 ## Getting started
 
-*Coming with the first implementation ticket.* The planned setup uses [uv](https://docs.astral.sh/uv/):
+Requires [uv](https://docs.astral.sh/uv/) (it installs Python 3.14 if needed).
 
 ```bash
-git config core.hooksPath .githooks   # optional local guard; main is also protected on GitHub
-uv sync            # install dependencies
-uv run pytest      # run the test suite
-uv run fastapi dev # start the app on http://localhost:8000
+git config core.hooksPath .githooks          # optional local guard; main is also protected on GitHub
+uv sync                                      # install dependencies
+uv run pytest                                # run the test suite
+uv run ruff check && uv run ruff format --check   # lint and formatting
+uv run fastapi dev src/shortener/main.py     # start the app on http://localhost:8000
 ```
 
-Configuration: `BASE_URL` (default `http://localhost:8000`) sets the shortener's public address.
+Try it:
+
+```bash
+curl -s -X POST localhost:8000/links -H 'content-type: application/json' \
+     -d '{"url": "https://example.com/very/long"}'
+# {"short_code":"Ab3xK9q","short_url":"http://localhost:8000/Ab3xK9q","long_url":"https://example.com/very/long"}
+curl -si localhost:8000/Ab3xK9q    # 302 Found, Location: https://example.com/very/long
+```
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `BASE_URL` | `http://localhost:8000` | The shortener's public address; every Short URL starts with it |
+| `DATABASE_PATH` | `links.db` | Where the SQLite database lives |
 
 ## How this project is run
 
