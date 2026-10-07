@@ -6,7 +6,7 @@ A small, backend-focused URL shortener, built in the open as a **complete SDLC c
 2. **Brownfield**: evolving the running system feature by feature.
 3. **Reliability**: making it production-grade, with measurements.
 
-> **Status:** Greenfield, wave 1, in progress: the JSON API is complete (create, Redirect, URL Rules, Collision handling), and the web page works without JavaScript at `/`. HTMX enhancement and visual polish are next. **Track the work:** [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) · [Wave 1 milestone](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestone/1).
+> **Status:** Greenfield, wave 1, in progress: the JSON API is complete (create, Redirect, URL Rules, Collision handling), and the web page at `/` works with or without JavaScript (HTMX: no reload, copy button). Visual polish, accessibility and Lighthouse are next. **Track the work:** [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) · [Wave 1 milestone](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestone/1).
 
 ## What it does (v1)
 
