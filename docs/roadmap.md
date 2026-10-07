@@ -6,35 +6,49 @@ This is the log of everything we have **deliberately deferred**. Each entry reco
 
 ## Waves (priority order)
 
-Items within a wave are listed in the order they should be picked up.
+Items within a wave are listed in the order they should be picked up; `∥` marks paths that can run in parallel and join before the wave closes.
 
 | Wave | Theme | Items in order | Why this order |
 |---|---|---|---|
 | **1** ✅ | **Greenfield v1**: build it, all tests green, CI. **Done:** spec 0001 implemented (#3–#8, #14, #16) | *(the core: no roadmap items)* | Nothing else makes sense until the core works and is tested |
-| **2** | **Production readiness** | R11 → R12 → R6 → R17 | Package it first (R11) so everything after runs the same way everywhere. Then make it operable with health checks, logs and config (R12). Then close the one security gap before it is exposed anywhere (R6) |
-| **3** | **Reliability & scalability, measured** | R13 → R5 → R14 → R15 → R7 | **Measure before changing**: a load-test baseline (R13) gives the numbers that justify the Postgres migration (R5). Failure testing (R14) runs against the real production setup. Scaling out (R15) needs Postgres first, and only then does code generation need revisiting (R7) |
-| **4** | **Feature evolution** (brownfield) | R16 (when released) → R10 → R2 → R1 → R3 → R4 → R9 | The clickstream (R10) comes first because click counts (R2) can be derived from it. Then the other features. R9 only if needed |
+| **2** | **Orchestrated delivery, analytics, operability** | R18 → ( R10 → R2 ∥ R12 → R11 → R21 ) | The orchestrator (R18) comes first, so the rest of the wave is delivered through it. Analytics (R10 → R2) is the brownfield change to the Redirect path; operability (health, metrics, logs → container → API contract) can proceed in parallel |
+| **3** | **Hardening, reliability evidence, write-ups** | ( R6 ∥ R19 ∥ R20 ) → R22 ∥ R13 → R14 ∥ R23 ∥ R25 → R24 | Close the security gaps, then record every risk with its guardrail. Measure (R13) before testing failure (R14). The clarification case study and the scaling ADR are independent. Write-ups (R24) come last, from the real history |
+| **later** | Beyond the delivery time box | R5, R15 (per ADR 0019 triggers), R16, R17, R1, R4, R9 | Kept with their reasons so nothing is silently dropped |
 
-Waves 2–4 are each started deliberately by the user. Feature items from wave 4 may be pulled earlier if the user chooses.
+Waves are each started deliberately by the user.
+
+## Re-prioritisation log
+
+| Date | Change | Why |
+|---|---|---|
+| 2026-10-07 | Waves 2–4 restructured into waves 2–3 plus *later*. Added R18–R25. Pulled R10/R2 (analytics) into wave 2. Moved R6 and R13/R14 into wave 3. Moved R5/R7/R15 (PostgreSQL, scaling out) to *later*, documented by R25 instead. R17 made conditional | Delivery is time-boxed to a few days. Analytics is part of the core product. The delivery process should become a runnable, measurable system (R18). Security hardening and written evidence (risks, case studies, summary) matter more than building out multi-node scaling now |
 
 ## Items
 
 | # | Item | Wave | Deferred on | Why deferred | Status | Links |
 |---|---|---|---|---|---|---|
-| R1 | Custom aliases (`/my-link`) | 4 | 2026-10-07 | Keep v1 to the core; adding it to a running system is brownfield evidence | deferred | |
-| R2 | Click counts per link | 4 | 2026-10-07 | Same as R1. Each link already has its own code (ADR 0003), so counts will be per link | deferred | |
-| R3 | Expiring links | 4 | 2026-10-07 | Same as R1 | deferred | |
-| R4 | Edit / delete a link | 4 | 2026-10-07 | Not needed to prove the core flow | deferred | |
-| R5 | Migrate storage SQLite → PostgreSQL | 3 | 2026-10-07 | No load or concurrency need yet. The storage interface keeps the move contained | deferred | ADR 0002 (to be superseded) |
-| R6 | URL rule: block private/internal addresses (`localhost`, `10.x`, `192.168.x`) and verify that DNS resolves | 2 | 2026-10-07 | v1 ships basic rules only; must land before any real exposure | deferred | ADR 0004 |
-| R7 | Revisit code generation if we scale beyond one node | 3 | 2026-10-07 | A key pool or distributed IDs would be overkill for a single node | deferred | ADR 0003 |
+| R1 | Custom aliases (`/my-link`) | later | 2026-10-07 | Keep v1 to the core; adding it to a running system is brownfield evidence | deferred | |
+| R2 | Click counts per link | 2 | 2026-10-07 | Pulled into wave 2 (2026-10-07): analytics is part of the core product. Adds a per-Link stats API; derived from R10's Click events | deferred | |
+| R3 | Expiring links | 3 | 2026-10-07 | Chosen (2026-10-07) as R23's under-specified feature: it touches the most existing decisions (Short Code reuse, Redirect status and caching, Clicks, stats, the scaling path) | deferred | R23 |
+| R4 | Edit / delete a link | later | 2026-10-07 | Not needed to prove the core flow | deferred | |
+| R5 | Migrate storage SQLite → PostgreSQL | later | 2026-10-07 | Beyond the delivery time box (re-prioritised 2026-10-07). The migration path is documented in an ADR instead (R25); the storage interface keeps it contained | deferred | ADR 0002 (to be superseded), ADR 0019 stage 1 |
+| R6 | URL rule: block private/internal addresses (IP literals in every encoding, reserved names such as `localhost` and `*.internal`); **no DNS lookup** (narrowed 2026-10-07, ADR 0018) | 3 | 2026-10-07 | v1 ships basic rules only; must land before any real exposure | deferred | ADR 0004, ADR 0018 |
+| R7 | Revisit code generation if we scale beyond one node | later | 2026-10-07 | Closed 2026-10-07: random codes with database-enforced uniqueness are already safe across instances (ADR 0019) | won't do (not needed) | ADR 0003, ADR 0019 |
 | R8 | User accounts and link ownership | — | 2026-10-07 | Not part of this project's goals | won't do (for now) | |
-| R9 | Config-driven URL rules (enable/tune rules from a file without a deploy) | 4 | 2026-10-07 | Adopt only when a no-deploy rule change is actually needed (ADR 0004, option B) | deferred (conditional) | ADR 0004 |
-| R10 | Clickstream / audit pipeline: emit an event for every successful redirect (code, timestamp, referrer, user agent) for auditing and analytics | 4 | 2026-10-07 | Builds on the core redirect; possible only because redirects are 302 and every click passes through us (ADR 0005). Relates to R2 (click counts could be derived from it) | deferred | ADR 0005 |
+| R9 | Config-driven URL rules (enable/tune rules from a file without a deploy) | later | 2026-10-07 | Adopt only when a no-deploy rule change is actually needed (ADR 0004, option B) | deferred (conditional) | ADR 0004 |
+| R10 | Clickstream / audit pipeline: emit an event for every successful redirect (code, timestamp, referrer, user agent) for auditing and analytics | 2 | 2026-10-07 | Pulled into wave 2 (2026-10-07): the foundation for analytics (R2). Changes the existing Redirect path, so it is delivered with a written impact analysis of the affected modules, APIs and data flows | deferred | ADR 0005 |
 | R11 | **Dockerize**: multi-stage Dockerfile (Maven build stage, JRE 25 runtime stage), `docker compose` for local run, image built and tested in CI | 2 | 2026-10-07 | Production-readiness wave, after v1 is green | deferred | |
 | R12 | **Operability basics**: liveness/readiness endpoints, structured JSON logs with request IDs, all config from environment (`BASE_URL` etc.), graceful shutdown, first `docs/runbook.md` | 2 | 2026-10-07 | Same as R11 | deferred | |
 | R13 | **Load & performance testing**: scripted load tests on the redirect hot path (ADR 0005) and create path; set SLOs (e.g. p95 redirect latency) and record a baseline | 3 | 2026-10-07 | Reliability wave. Gives the evidence that drives R5 and R15 | deferred | |
-| R14 | **Failure / resilience testing**: behaviour when the DB is down or slow, disk is full, or the container restarts; verify errors, health status and recovery; incident write-ups for anything found | 3 | 2026-10-07 | Reliability wave, after R5 so it tests the production setup | deferred | |
-| R15 | **Horizontal scaling**: several app instances behind a load balancer, verified under R13's load tests | 3 | 2026-10-07 | Needs shared storage (R5) first; triggers R7 | deferred | |
-| R16 | **Upgrade Spring Boot 4.1 → 4.2** (due Nov 2026) as a deliberate, tested dependency upgrade | 4 | 2026-10-07 | Not released yet; a minor upgrade is better done as its own traceable change | deferred | ADR 0001 |
-| R17 | **Code coverage reporting** (JaCoCo) in CI | 2 | 2026-10-07 | A coverage number on a handful of tests says little; more useful once the suite has grown | deferred | Plan 0001 |
+| R14 | **Failure / resilience testing**: behaviour when the DB is down or slow, disk is full, or the container restarts; verify errors, health status and recovery; incident write-ups for anything found | 3 | 2026-10-07 | Reliability wave. Runs against the SQLite setup (R5 is now beyond the time box) | deferred | |
+| R15 | **Horizontal scaling**: several app instances behind a load balancer, verified under R13's load tests | later | 2026-10-07 | Beyond the delivery time box (re-prioritised 2026-10-07). Needs R5 first; the scaling path is documented in R25 | deferred | ADR 0019 stage 2 |
+| R16 | **Upgrade Spring Boot 4.1 → 4.2** (due Nov 2026) as a deliberate, tested dependency upgrade | later | 2026-10-07 | Not released yet; a minor upgrade is better done as its own traceable change | deferred | ADR 0001 |
+| R17 | **Code coverage reporting** (JaCoCo) in CI | later | 2026-10-07 | Deferred (re-prioritised 2026-10-07): coverage is measured ad hoc in PRs (100% branches at #14); CI reporting only if time allows | deferred (conditional) | Plan 0001 |
+| R18 | **Delivery orchestrator**: a runnable orchestration layer that drives a ticket through requirements → design → implementation → testing → documentation → release readiness. An explicit dependency graph of stages with entry/exit gates; parallel branches that join; persisted state and decision lineage across stages; human approval checkpoints for high-impact steps; bounded retries, fallback, rollback and safe-stop; policy guardrails (security, change control); an audit-grade event log; delivery metrics (success rate, retry/rollback frequency, MTTR, end-to-end latency); re-planning when an upstream artifact changes | 2 | 2026-10-07 | New (2026-10-07): the delivery process is currently practised by convention (skills, `CLAUDE.md`, CI, human merges). It should become a system that can be run, inspected and measured. Its design needs grilling and ADRs before any code | deferred | |
+| R19 | **Rate limiting** on Link creation (API and web page), with a clear `429` | 3 | 2026-10-07 | New (2026-10-07): abuse protection before any public exposure; not covered by any earlier item | deferred | |
+| R20 | **Security headers**: Content-Security-Policy (self-hosted scripts only), `X-Content-Type-Options`, `Referrer-Policy`, frame protection | 3 | 2026-10-07 | New (2026-10-07): the page is self-hosted with no inline scripts, so a strict CSP is cheap now | deferred | ADR 0006 |
+| R21 | **OpenAPI definition** of the JSON API, checked in CI so it can't drift from the code | 2 | 2026-10-07 | New (2026-10-07): the API contract lives only in spec prose and tests today | deferred | Spec 0001 |
+| R22 | **Risk and failure-scenario register** (`docs/risks.md`): each risk, trade-off and failure scenario with its guardrail and the test or check that validates it | 3 | 2026-10-07 | New (2026-10-07): risks are scattered across ADRs, plan 0001 and PRs; one register makes them reviewable | deferred | Plan 0001 |
+| R23 | **Requirement-clarification case study**: take one deliberately under-specified feature, **R3 expiring links** (chosen over R1 custom aliases), from a one-line request through grilling → spec → tickets → orchestrated build → validation | 3 | 2026-10-07 | New (2026-10-07): shows how an ambiguous requirement is normalised before code | deferred | R3 |
+| R24 | **Delivery write-ups**: architecture overview (components, orchestration model, control flow, key decisions); case studies for greenfield (wave 1), brownfield (R10/R2) and requirement clarification (R23), each showing decomposition, orchestration and validation; a final engineering summary (plan and rationale, artifacts, risks and trade-offs, validation, assumptions, limitations) | 3 | 2026-10-07 | New (2026-10-07): written last, from the real history | deferred | |
+| R25 | **Scaling path ADR**: how to move from one SQLite node to PostgreSQL and several instances (R5, R7, R15), with triggers and order, instead of building it now | 3 | 2026-10-07 | New (2026-10-07): keeps the scalability story defensible inside the time box | decided: ADR 0019 | ADR 0019 |

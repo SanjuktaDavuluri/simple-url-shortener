@@ -12,6 +12,10 @@ An **external third party will evaluate** this project. They will judge whether 
 
 Every piece of work should leave evidence a reviewer can follow: why something was decided, which ticket drove a change, and how it was tested.
 
+## Two planes (read first)
+
+This repo holds the **product** (the Java URL shortener service: `java -jar`, `scripts/local.sh`, container) and, from wave 2, the **delivery orchestrator** (`orchestrator/`, Python, run on demand with `orchestrate`). The orchestrator is development-time tooling. It ends at a PR that is ready to merge and **never deploys or connects to a running service**. Its validation stages start their own temporary instances on another port and data directory, never the maintainer's service on :8000. See ADR 0007 and the diagram in `docs/architecture.md`.
+
 ## How we work
 
 - **Interview one question at a time.** When grilling or clarifying, ask a single question, give a recommended answer, and wait. Don't batch questions, even if a skill says to ask a whole round.
@@ -35,6 +39,7 @@ Approved 2026-10-07. Introduce each one **only when its phase arrives**, so the 
 | Greenfield | Domain glossary | `CONTEXT.md` |
 | All | Roadmap / deferral log: every postponed item is logged, then turned into a spec (`/to-spec`) and tickets (`/to-tickets`) when picked up | `docs/roadmap.md` |
 | All | Architecture diagrams (Mermaid) | `docs/architecture.md` |
+| All | Onboarding guide for new engineers and reviewers; README is the reviewer's map | `docs/onboarding.md`, `README.md` (added 2026-10-07) |
 | All | Plans (numbered, with status; tracked by a GitHub issue labelled `plan`) | `docs/plans/NNNN-<slug>.md`, indexed in `docs/plans/README.md` (added 2026-10-07) |
 | All | Tickets | GitHub Issues in the private repo, each linking to its spec (decided 2026-10-07) |
 | All | Git history: branch + PR per ticket, conventional commits | Private GitHub repo, created when prototyping ends |
