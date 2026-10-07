@@ -14,10 +14,11 @@ public final class RuleSet {
     this.rules = List.copyOf(rules);
   }
 
-  /** The v1 Rule Set (spec 0001): scheme, host, length, then Self-link. */
+  /** The v1 Rule Set (spec 0001): well-formed, scheme, host, length, then Self-link. */
   public static RuleSet v1(String baseUrl) {
     return new RuleSet(
         List.of(
+            new WellFormedRule(),
             new HttpSchemeRule(),
             new HostPresentRule(),
             new MaxLengthRule(),

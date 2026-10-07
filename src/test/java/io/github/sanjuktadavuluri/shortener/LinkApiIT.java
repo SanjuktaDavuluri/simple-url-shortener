@@ -66,6 +66,8 @@ class LinkApiIT extends IntegrationTest {
         .hasStatus(422)
         .bodyJson()
         .extractingPath("$.detail")
-        .isEqualTo("Only http:// and https:// web addresses can be shortened.");
+        .isEqualTo(
+            "That isn't a valid web address. Check it for spaces or characters like"
+                + " \" < > { } |.");
   }
 }

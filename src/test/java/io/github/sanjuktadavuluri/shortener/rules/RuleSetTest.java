@@ -16,6 +16,15 @@ class RuleSetTest {
   }
 
   @Test
+  void aMalformedWebAddressIsRejectedForBeingMalformedNotForItsScheme() {
+    assertThat(v1.check("https://example.com/with space"))
+        .isEqualTo(
+            RuleResult.rejected(
+                "That isn't a valid web address. Check it for spaces or characters like"
+                    + " \" < > { } |."));
+  }
+
+  @Test
   void theSchemeIsCheckedBeforeTheLength() {
     String longUrl = "ftp://example.com/" + "a".repeat(3000);
 
