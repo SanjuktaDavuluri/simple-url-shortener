@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simple URL Shortener</title>
+  <meta name="description" content="Turn a long web address into a short one you can share.">
+</head>
+<body>
+  <main>
+    <h1>Simple URL Shortener</h1>
+    <p>Paste a long web address to get a short one you can share.</p>
+    <div th:replace="~{fragments/shortener :: shortener}"></div>
+  </main>
+</body>
+</html>

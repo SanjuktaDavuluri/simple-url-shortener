@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/* The shortener: form, field, Rejection Reason and result in one fragment (ADR 0006).
+       The full page and (from #7) HTMX responses render this same fragment. */-->
+<section id="shortener" th:fragment="shortener" aria-labelledby="shortener-heading">
+  <h2 id="shortener-heading">Shorten a link</h2>
+
+  <form method="post" action="/" novalidate>
+    <label for="url">Long URL</label>
+    <input id="url" name="url" type="text" inputmode="url" autocomplete="url"
+           placeholder="https://example.com/a/very/long/address"
+           th:value="${longUrl}"
+           th:attr="aria-invalid=${rejectionReason != null} ? 'true' : null,
+                    aria-describedby=${rejectionReason != null} ? 'url-error' : null">
+    <p id="url-error" role="alert" th:if="${rejectionReason != null}"
+       th:text="${rejectionReason}">Rejection Reason</p>
+    <button type="submit">Shorten</button>
+  </form>
+
+  <div id="result" aria-live="polite">
+    <p role="alert" th:if="${failure != null}" th:text="${failure}">Failure</p>
+    <p th:if="${link != null}">
+      Your Short URL:
+      <a data-short-url th:href="${link.shortUrl()}" th:text="${link.shortUrl()}">Short URL</a>
+    </p>
+  </div>
+</section>
+</body>
+</html>
