@@ -6,7 +6,7 @@ A small, backend-focused URL shortener, built in the open as a **complete SDLC c
 2. **Brownfield**: evolving the running system feature by feature.
 3. **Reliability**: making it production-grade, with measurements.
 
-> **Status:** Greenfield, wave 1, in progress. The JSON API can create a Link and Redirect from it ([#3](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/3)). Rules, Collision handling and the web page follow in [#4–#8](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues).
+> **Status:** Greenfield, wave 1, in progress. The JSON API creates Links and Redirects from them ([#3](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/3)), and refuses unsafe Long URLs with a clear Rejection Reason ([#5](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/5)). Collision handling and the web page follow in [#4, #6–#8](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues).
 
 ## What it does (v1)
 
@@ -47,6 +47,10 @@ curl -s -X POST localhost:8000/links -H 'content-type: application/json' \
      -d '{"url": "https://example.com/very/long"}'
 # {"short_code":"mFzrymu","short_url":"http://localhost:8000/mFzrymu","long_url":"https://example.com/very/long"}
 curl -si localhost:8000/mFzrymu    # 302, Location: https://example.com/very/long, Cache-Control: no-store
+
+curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"url": "ftp://example.com"}'
+# 422 {"detail":"Only http:// and https:// web addresses can be shortened.",
+#      "instance":"/links","status":422,"title":"Unprocessable Content"}
 ```
 
 | Setting | Default | Purpose |
