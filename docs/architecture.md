@@ -1,5 +1,33 @@
 # Architecture
 
+## The two planes
+
+The repository holds two separate systems with **separate entry points**. The **product plane** is the Java service that end users use. The **delivery plane** is the development-time orchestrator (`orchestrator/`, planned for wave 2) that turns requests into reviewed pull requests. The orchestrator never deploys and never connects to a running service. Its validation stages start temporary instances on their own port and data directory. A change reaches the product only when a human merges a PR ([ADR 0007](adr/0007-delivery-orchestrator.md)).
+
+```mermaid
+flowchart LR
+    subgraph DEV["Delivery plane: development time (orchestrator/, Python), on demand"]
+        direction TB
+        CLI["Engineer runs<br/>orchestrate start (issue number)"] --> ORCH["Orchestrator<br/>LangGraph stages and approvals<br/>Agent SDK steps"]
+        ORCH --> WT["Git worktree<br/>code, tests, docs"]
+        WT --> TMP["Temporary service instance<br/>own port, temporary data dir<br/>mvn verify, e2e, load smoke test"]
+    end
+
+    ORCH <--> LLM["Claude API"]
+    ORCH -->|"branches, PRs, Issue comments, run log"| GH["GitHub<br/>Issues, PRs, CI, delivery board"]
+    GH -->|"a human reviews and merges"| MAIN["main"]
+
+    subgraph RUN["Product plane: runtime (Java service), always on"]
+        SVC["Shortener service<br/>java -jar, scripts/local.sh, container"]
+    end
+
+    MAIN -->|"build and deploy: a separate step, not the orchestrator"| SVC
+    USERS(["End users"]) --> SVC
+    ORCH -.-x|"never connects"| SVC
+```
+
+The rest of this document describes the product plane. The orchestrator's stage graph is in [ADR 0008](adr/0008-orchestrator-stage-graph-and-governance.md).
+
 ## Request flows (v1)
 
 ### Create a short link
