@@ -1,0 +1,10 @@
+#!/bin/sh
+# Refuse any push to main. Changes reach main only through a PR (see CLAUDE.md).
+# Local backup to the GitHub branch protection on main: it fails fast, before anything reaches GitHub.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    echo "pre-push: direct pushes to main are blocked. Push a feature branch and open a PR." >&2
+    exit 1
+  fi
+done
+exit 0
