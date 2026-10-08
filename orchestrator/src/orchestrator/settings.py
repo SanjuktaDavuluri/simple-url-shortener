@@ -1,6 +1,6 @@
 """Run settings: defaults from spec 0002, overridden by `orchestrator/settings.yaml`."""
 
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import asdict, dataclass, fields, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,8 @@ class Settings:
     cost_cap_step_usd: float = 5.0
     cost_cap_run_usd: float = 50.0
     model: str = "claude-opus-5-5"
+    effort:str = "high"
+    stage_models: dict[str, str] = field(default_factory=dict) # model per step, else `model`
     board_owner: str = ""
     board_number: int = 0
     # Exit Gate commands, run inside a Lane's worktree (never the engineer's checkout)

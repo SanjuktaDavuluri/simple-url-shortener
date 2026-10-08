@@ -3,7 +3,10 @@ max_retries: 2          # gate retries per Stage before the Run pauses for the e
 max_parallel_lanes: 2   # ticket Lanes running at once
 cost_cap_step_usd: 5    # per agent step; reaching it triggers a Safe-stop
 cost_cap_run_usd: 50    # per Run
-model: claude-opus-5-5
+model: claude-sonnet-5-5
+effort: medium
+stage_models:
+  document: claude-haiku-5-5
 board_owner: SanjuktaDavuluri   # delivery board (GitHub Project) where published tickets go
 board_number: 1
 # Exit Gate commands, run inside a Lane's own worktree (defaults shown)

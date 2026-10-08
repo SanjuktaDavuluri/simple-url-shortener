@@ -21,6 +21,7 @@ class StepRequest:
     allowed_tools: tuple[str, ...] = ()
     budget_usd: float = 0.0
     model: str = ""  # from the Run's settings, set for every step
+    effort: str = "high"
     # The policy check every action must pass before it runs (the PreToolUse hook, ADR 0010).
     guard: Callable[[ToolCall], Decision] = field(default=lambda call: Decision(True))
 

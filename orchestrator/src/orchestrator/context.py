@@ -114,7 +114,12 @@ class RunContext:
             return decision
 
         try:
-            result = self.agent.run(replace(request, guard=guard, model=self.settings.model))
+            result = self.agent.run(
+                replace(request,
+                    guard=guard,
+                    model=self.settings.stage_models.get(request.stage, self.settings.model),
+                    effort=self.settings.effort,
+            ))
         except AgentFailed as failed:
             self._record_call(request.stage, failed.spent)
             raise RunPaused(request.stage, failed.reason) from failed

@@ -13,7 +13,7 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
@@ -128,7 +128,7 @@ def _relative(path: str, workspace: Path) -> str:
 def options(request: StepRequest, hook: HookCallback) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         model=request.model,
-        effort=EFFORT,
+        effort=cast(EffortLevel, request.effort),
         cwd=request.workspace,
         allowed_tools=TOOLS,
         permission_mode="dontAsk",  # anything not allowed above is refused, never prompted
