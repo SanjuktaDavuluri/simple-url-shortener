@@ -1,0 +1,112 @@
+[
+  {
+    "key": "T1",
+    "title": "API: create a Link with a Lifetime; its Short URL answers 410 Gone from its Expiry on",
+    "what": "The tracer bullet through every layer (spec 0004, stories 1–3, 11–18, 21–23). Add the `Lifetime` value type (whole days 1–365, a constant in the type; it's not a Rule, so an invalid one gives a validation message, not a Rejection Reason) and its Expiry calculation (creation instant + Lifetime × 24 h, from the injected `Clock`). Add Flyway `V3__add_link_expiry.sql` (`ALTER TABLE links ADD COLUMN expires_at TEXT`, nullable, ISO-8601 UTC like `created_at`, no index). Change `LinkStore`/`JdbcLinkStore`: *save* takes an optional Expiry, and the Redirect lookup becomes one primary-key query returning Long URL + Expiry (replacing `findLongUrl`). `LinkService.create` takes an optional Lifetime and stays the single create path (trim, Rule Set, draw Short Codes, save with Expiry; Collision handling and the 5-attempt limit unchanged, ADR 0003). `Link` carries its optional Expiry. `POST /links` accepts an optional integer `expires_in_days` (absent or `null` means it never expires) and the `201` always includes `expires_at` (ISO-8601 UTC, or `null`). `LinkController.followLink`: unknown Short Code gives `404` as before; a Link that hasn't expired gives the same `302` + one Click on `GET`; an Expired Link (`now >= Expiry`, compared in Java against the Clock) gives `410 Gone`, `Content-Type: text/plain;charset=UTF-8`, `Cache-Control: no-store`, body `This link has expired.` (no body for `HEAD`), and never calls the Click Recorder. Add Lifetime, Expiry and Expired Link to `CONTEXT.md` using the spec's glossary candidates. Strict rejection of non-integer `expires_in_days` values is T2.",
+    "acceptance": [
+      "`LifetimeTest` (plain JUnit 5): 1 and 365 are valid; 0, -1 and 366 give the message \"expires_in_days must be a whole number of days from 1 to 365.\"; Lifetime 30 from the fixed instant 2026-10-08T10:00:00Z gives the Expiry 2026-11-07T10:00:00Z (written out literally)",
+      "`V3__add_link_expiry.sql` adds a nullable `expires_at TEXT` column to `links`, with no index; `clicks` is untouched",
+      "`POST /links` with `expires_in_days` 30 and `TestClock` at 2026-10-08T10:00:00Z returns `201` with `expires_at` \"2026-11-07T10:00:00Z\" (in the stored ISO-8601 format); with 1 and 365 it returns the matching literal Expiry",
+      "`POST /links` with no `expires_in_days`, or with `null`, returns `201` with `expires_at: null`; existing `LinkApiIT` assertions pass, changed only to expect `expires_at: null`",
+      "Redirect boundaries with `TestClock`: 1 ms before the Expiry → `302` with `Location` and `Cache-Control: no-store`; exactly at the Expiry → `410`; long after → `410`. Each `410` has `Content-Type: text/plain;charset=UTF-8`, `Cache-Control: no-store` and body `This link has expired.`; `HEAD` gets the same status and headers with no body",
+      "An unknown Short Code still gives `404`; a Link created without a Lifetime still Redirects with the clock advanced 10 years",
+      "Click Store seam (after `flush()`): `GET` and `HEAD` to an Expired Link store no Click; a `GET` before its Expiry stores exactly one",
+      "The Redirect still does a single primary-key lookup; existing Redirect, Clickstream, Collision and Persistence tests pass unchanged apart from the new `LinkStore` signatures",
+      "`CONTEXT.md` defines Lifetime, Expiry and Expired Link, each with an _Avoid_ line, as given in spec 0004",
+      "Matrix rows for these criteria are added to `docs/plans/0001-integration-testing.md`; `./mvnw verify` passes"
+    ],
+    "blocked_by": [],
+    "kind": "Feature"
+  },
+  {
+    "key": "T2",
+    "title": "API: reject an invalid `expires_in_days` with a 422 and create no Link",
+    "what": "Make the API strict about the Lifetime (spec 0004, stories 4–5). When `expires_in_days` is present and not `null` but isn't a JSON integer from 1 to 365, `POST /links` answers `422` with the validation message \"expires_in_days must be a whole number of days from 1 to 365.\" and creates no Link. Strings such as \"30\", decimals such as 1.5, booleans and objects are rejected, never coerced (e.g. read the field as a JSON node, or turn off Jackson coercion for it, and validate through the `Lifetime` type from T1). Order: the request shape (malformed `url`) is checked first, then the Lifetime, then the Rule Set. Every existing `422` (Rejection Reason, malformed request) and `503` answer stays exactly as it is.",
+    "acceptance": [
+      "`expires_in_days` values `0`, `-1`, `366`, `1.5`, `\"30\"`, `true` and `{}` each give `422` with the detail \"expires_in_days must be a whole number of days from 1 to 365.\"",
+      "In each of those cases no Link is created: the next scripted Short Code is still unused and is given to the next valid request",
+      "A request with both a malformed `url` (missing or not a string) and a bad `expires_in_days` gets the existing malformed-request message",
+      "A request with a valid `expires_in_days` and a `url` that breaks a Rule gets today's Rejection Reason unchanged; a request with a Rule-breaking `url` and a bad `expires_in_days` gets the Lifetime message (Lifetime checked before the Rule Set)",
+      "Existing `RejectionIT`, `LinkApiIT` and `CollisionIT` (`503`) assertions pass unchanged",
+      "Matrix rows added to `docs/plans/0001-integration-testing.md`; `./mvnw verify` passes"
+    ],
+    "blocked_by": [
+      "T1"
+    ],
+    "kind": "Feature"
+  },
+  {
+    "key": "T3",
+    "title": "Prove Expired Links are kept: Short Codes never reused, Clicks kept, Expiry survives restart and V3 migrates old data",
+    "what": "The evidence for ADR 0022 and spec 0004 stories 17 and 19–21, using the existing seams (no production change expected; if a test exposes a gap, fix it in this ticket). Collision: with `ScriptedShortCodeGenerator`, a drawn Short Code that names an Expired Link is a Collision, the new Link gets the next scripted code, and the Expired Link still answers `410`. Clicks: an Expired Link's Clicks recorded before its Expiry are still listed by the Click Store after it expires. Persistence (`TestApps`): a Link's Expiry survives a restart on the same database file. Migration: V3 applies to a Release 2 database (V1 + V2 schema) that already holds Links and Clicks, and those Links still Redirect, with `expires_at` `null`.",
+    "acceptance": [
+      "`CollisionIT`: scripting an Expired Link's Short Code followed by a fresh one creates the new Link under the fresh Short Code; the Expired Link's Short URL still answers `410 Gone`",
+      "An Expired Link's Clicks recorded before its Expiry are still listed after `flush()` once the clock has passed the Expiry, and following it afterwards adds none",
+      "`PersistenceIT`: a Link created with a Lifetime keeps its `expires_at` after the instance restarts on the same database file, and still answers `410` after its Expiry",
+      "Migration test: a database built at Release 2's schema with existing Links and Clicks migrates to V3 on start; those Links Redirect (`302`) and report no Expiry, and their Clicks are untouched",
+      "No test asserts on SQL; test names use glossary terms (Expired Link, Collision, Short Code, Click)",
+      "Matrix rows added to `docs/plans/0001-integration-testing.md`; `./mvnw verify` passes"
+    ],
+    "blocked_by": [
+      "T1"
+    ],
+    "kind": "Test"
+  },
+  {
+    "key": "T4",
+    "title": "Web page: optional \"Expires after (days)\" field, the Expiry shown with the result, and an inline validation message",
+    "what": "Bring the Lifetime to the web page (spec 0004, stories 6–10), working with and without HTMX (ADR 0006), from one template for the full page and the fragment. `fragments/shortener.html` gains an optional number input `expires_in_days` labelled \"Expires after (days)\" with the hint \"Leave blank to keep the link forever\" (`min=1`, `max=365`, `inputmode=numeric`); the form keeps `novalidate`, so the server decides. `PageController` reads the form value, treats blank as no Lifetime, and validates text through the `Lifetime` type (decimals and non-numbers are invalid), then calls the same `LinkService.create`. Invalid → `422` with the validation message under the field (`aria-invalid`, `aria-describedby`, `role=\"alert\"`), both typed values kept. Success shows \"Expires on 2026-11-07 10:15 UTC\" under the Short URL, or no Expiry line for a Link that never expires. CSS only as needed; no new JavaScript; CSP (ADR 0017) unchanged.",
+    "acceptance": [
+      "`WebPageIT` and `WebPageHtmxIT`: the field is present, labelled \"Expires after (days)\" through a `<label for>`, with the hint, `min=1`, `max=365` and `inputmode=numeric`; the form still has `novalidate`",
+      "A blank field creates a Link that never expires, and the result has no Expiry line",
+      "With `TestClock` at 2026-10-08T10:15:00Z and 30 days, the result shows \"Expires on 2026-11-07 10:15 UTC\" (literal)",
+      "Values such as `0`, `366`, `1.5` and `abc` give `422`, the message \"expires_in_days must be a whole number of days from 1 to 365.\" under the field with `aria-invalid=\"true\"`, `aria-describedby` pointing at it and `role=\"alert\"`; the typed Long URL and days are both kept; no Link is created",
+      "A Rule-breaking Long URL with a blank field still shows today's Rejection Reason under the Long URL field",
+      "One template still serves the full page and the HTMX fragment; no new JavaScript is added",
+      "The \"Browser checks (Playwright + Lighthouse)\" CI check stays green with Lighthouse ≥ 90 in every category",
+      "Matrix rows added to `docs/plans/0001-integration-testing.md`; `./mvnw verify` passes"
+    ],
+    "blocked_by": [
+      "T1"
+    ],
+    "kind": "Feature"
+  },
+  {
+    "key": "T5",
+    "title": "Browser checks: create an expiring Link through the page, with and without JavaScript",
+    "what": "Extend `e2e/browser-checks.js` (spec 0004, Testing Decisions, browser checks) so that the Playwright run fills in the Long URL and \"Expires after (days)\", submits, and sees the Short URL plus an \"Expires on … UTC\" line, once with JavaScript (HTMX swap) and once with JavaScript disabled (full-page post). Also cover an invalid number of days showing the message under the field in both modes. Lighthouse stays ≥ 90 in every category (median of 3 runs) on the page with the new field.",
+    "acceptance": [
+      "Browser checks create an expiring Link with JavaScript enabled and see the Short URL and a line matching \"Expires on YYYY-MM-DD HH:MM UTC\"",
+      "The same flow passes with JavaScript disabled (full-page form post)",
+      "An invalid value (e.g. 0) shows \"expires_in_days must be a whole number of days from 1 to 365.\" under the field in both modes, with both typed values kept",
+      "Lighthouse median of 3 runs is ≥ 90 in every category",
+      "`e2e/README.md` lists the new checks; the \"Browser checks (Playwright + Lighthouse)\" CI job passes"
+    ],
+    "blocked_by": [
+      "T4"
+    ],
+    "kind": "Test"
+  },
+  {
+    "key": "T6",
+    "title": "Docs: document Expiring Links across architecture, onboarding, README, roadmap and the spec index",
+    "what": "Update the documents spec 0004 lists under \"Documents to update with the tickets\" once the behaviour has merged. `docs/architecture.md`: the Redirect flow gains the `410` branch (Expired Link, no Click) and the creation flow gains the Lifetime → Expiry step and the `expires_at` column (Mermaid). `docs/onboarding.md`: the API example shows `expires_in_days` and `expires_at`, and the code tour mentions `Lifetime` and `V3__add_link_expiry.sql`. `README.md`: the feature and links to spec 0004 and ADR 0022. `docs/roadmap.md`: the R3 row points at spec 0004 and its tickets. `docs/specs/README.md`: spec 0004 indexed with status `implemented` (and its front matter updated), since every other ticket has merged. Check that `docs/plans/0001-integration-testing.md` traces every acceptance criterion of spec 0004 to a test.",
+    "acceptance": [
+      "`docs/architecture.md` has Mermaid diagrams showing the creation path with Lifetime → Expiry stored in `links.expires_at`, and the Redirect with three branches: `404` unknown, `302` + Click, `410` with no Click",
+      "`docs/onboarding.md` shows a `POST /links` example with `expires_in_days` and a `201` with `expires_at`, plus the `410` answer",
+      "`README.md` mentions Expiring Links and links spec 0004 and ADR 0022",
+      "`docs/roadmap.md` R3 row is updated to reflect its delivery and links spec 0004",
+      "`docs/specs/README.md` lists spec 0004, and its front matter status is `implemented`",
+      "Every user story in spec 0004 is traced to at least one test row in `docs/plans/0001-integration-testing.md`",
+      "Wording uses the glossary terms Lifetime, Expiry and Expired Link and avoids the listed alternatives (TTL, expiration date, dead link)"
+    ],
+    "blocked_by": [
+      "T1",
+      "T2",
+      "T3",
+      "T4",
+      "T5"
+    ],
+    "kind": "Docs"
+  }
+]
