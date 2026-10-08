@@ -9,4 +9,4 @@ Specs record **what** we are building and why it matters to its users. They pair
 | # | Spec | Status | Roadmap |
 |---|---|---|---|
 | 0001 | [v1 core: shorten and Redirect](0001-v1-core.md) | implemented | core (Release 1): tickets [#3–#8](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues) |
-| 0002 | [Delivery orchestrator](0002-delivery-orchestrator.md) | draft | R18 (Release 2) |
+| 0002 | [Delivery orchestrator](0002-delivery-orchestrator.md) | in-progress | R18 (Release 2): tickets [#26–#35](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestone/2) |

@@ -19,7 +19,7 @@ This README is the map. Every question a reviewer or a new engineer usually asks
 | Learn the vocabulary (Link, Short Code, Rule, Redirect, Click) | [`CONTEXT.md`](CONTEXT.md) |
 | Follow a request through the code | [`docs/architecture.md`](docs/architecture.md): sequence diagrams for create and Redirect |
 | Understand *why* it is built this way | [Decisions (ADRs)](#decisions) below · [`docs/adr/`](docs/adr/) |
-| Understand the delivery orchestrator | [The delivery orchestrator](#the-delivery-orchestrator) below · ADRs [0007](docs/adr/0007-delivery-orchestrator.md)–[0011](docs/adr/0011-orchestrator-replanning-and-lineage.md) |
+| Understand the delivery orchestrator | [The delivery orchestrator](#the-delivery-orchestrator) below · [`orchestrator/README.md`](orchestrator/README.md) · ADRs [0007](docs/adr/0007-delivery-orchestrator.md)–[0011](docs/adr/0011-orchestrator-replanning-and-lineage.md) |
 | See what each Release delivered | [Release notes](docs/releases/) · [`CHANGELOG.md`](CHANGELOG.md) |
 | See what's planned, deferred, and why | [`docs/roadmap.md`](docs/roadmap.md): releases, ordering and a re-prioritisation log |
 | Trace a feature from requirement to code | [Specs](docs/specs/) → [Issues](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues?q=is%3Aissue) → [pull requests](https://github.com/SanjuktaDavuluri/simple-url-shortener/pulls?q=is%3Apr) → commits. Each PR says `Closes #n` |
@@ -84,7 +84,7 @@ flowchart LR
 
 ## The delivery orchestrator
 
-*Planned for Release 2 (roadmap R18). It is designed, and not yet built.*
+*Being built in Release 2 (roadmap R18, tickets #26–#35). Available now: the walking skeleton (`start`, `status`, `verify`; intake only). See [`orchestrator/README.md`](orchestrator/README.md).*
 
 An engineer starts a run from a GitHub Issue: `orchestrate start <issue>`. The orchestrator then drives the request through fixed stages: **intake → requirements → design → decompose → per-ticket lanes (implement → document → PR) → release readiness → close-out**. Each stage has an exit gate. A human approves the spec, any ADRs, the tickets and every merge. Each run leaves a tamper-evident event log and a report in the repository, and delivery metrics are derived from them.
 
@@ -164,7 +164,7 @@ src/test/                    unit tests (*Test) and integration tests (*IT)
 e2e/                         browser checks (Playwright) and Lighthouse audits
 scripts/                     local.sh (run the app in the background), board-status.sh (delivery board)
 docs/                        ADRs, specs, plans, roadmap, releases, architecture, onboarding
-orchestrator/                the delivery orchestrator (planned, Release 2)
+orchestrator/                the delivery orchestrator (Python, uv; being built in Release 2)
 CONTEXT.md · CLAUDE.md       domain glossary · project charter
 ```
 

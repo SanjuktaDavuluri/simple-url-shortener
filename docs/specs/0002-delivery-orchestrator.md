@@ -1,5 +1,5 @@
 ---
-status: draft
+status: in-progress
 date: 2026-10-07
 release: 2
 roadmap: R18
@@ -103,7 +103,7 @@ The orchestrator is development-time tooling. It never deploys, and it never con
 
 ### Audit trail, report and metrics
 
-48. As a reviewer, I want one append-only `events.jsonl` per run, in which each event carries `schema_version`, a sequence number, a timestamp, the actor (engineer, agent, CI), the stage, the event type, its details and the SHA-256 hash of the previous event, so that the run's history is complete and tamper-evident.
+48. As a reviewer, I want one append-only `events.jsonl` per run, in which each event carries `schema_version`, a sequence number, a timestamp, the actor (engineer, agent, CI), the stage, the event type, its details, the SHA-256 hash of the previous event and its own hash, so that the run's history is complete and tamper-evident.
 49. As a reviewer, I want `orchestrate verify <run>` (or `--all`) to check every hash chain and report the first broken event, so that I can confirm nothing was edited or removed.
 50. As a reviewer, I want each agent call recorded with its model, input and output tokens, cost and duration, so that spend is attributable to stages.
 51. As a reviewer, I want `report.md` to show the stage graph with outcomes, a timeline, gate results, retries, rollbacks, approvals with approvers, re-plans and cost, so that a run can be understood without reading raw events.
@@ -129,7 +129,7 @@ The orchestrator is development-time tooling. It never deploys, and it never con
   - **GitHub**: Issues, comments, labels, milestones, the board, PRs, check runs and merged state. The real adapter wraps the `gh` CLI. The test adapter is an **in-memory GitHub**.
   - Git itself is **not** faked. Tests use real git against a temporary repository with a local bare remote.
 - **Policy check.** A pure function: `(policies, proposed action) → allowed | blocked(reason)`, where an action is a tool call or a diff. `policies.yaml` has a schema. The hook (before) and the gates (after) both use this same function (ADR 0010).
-- **Event log.** Each event has `schema_version`, `seq`, `ts`, `run`, `actor`, `stage`, `type`, `data` and `prev_hash`, written as JSON lines. Event types: `run_started`, `stage_started`, `stage_passed`, `stage_failed`, `gate_result`, `retry`, `paused`, `resumed`, `approval_requested`, `approved`, `rejected`, `agent_call`, `policy_blocked`, `lane_rolled_back`, `replanned`, `invalidated`, `safe_stop`, `run_finished`. Secrets are scanned before writing (ADR 0009).
+- **Event log.** Each event has `schema_version`, `seq`, `ts`, `run`, `actor`, `stage`, `type`, `data`, `prev_hash` and its own `hash` (SHA-256 of the event without `hash`; this also detects an edit to the last event), written as JSON lines. Event types: `run_started`, `stage_started`, `stage_passed`, `stage_failed`, `gate_result`, `retry`, `paused`, `resumed`, `approval_requested`, `approved`, `rejected`, `agent_call`, `policy_blocked`, `lane_rolled_back`, `replanned`, `invalidated`, `safe_stop`, `run_finished`. Secrets are scanned before writing (ADR 0009).
 - **Metrics definitions:**
   - **success rate:** runs that finished close-out ÷ runs that ended
   - **retry frequency:** retries ÷ stage executions
