@@ -98,6 +98,9 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #7 | Copy button present but hidden without JS | `WebPageHtmxIT` → `theShortUrlHasACopyButtonThatStaysHiddenWithoutJavaScript` | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) |
 | #7 | Persistent status region outside the fragment | `WebPageHtmxIT` → `thePageHasAStatusRegionOutsideTheFragmentForAnnouncements` | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) |
 | #7 | **In a real browser:** no reload, copy + "Copied ✓", clipboard, announcement, inline 422, focus to field, no JS errors; no-JS path works | Manual Playwright + Chrome run recorded in PR for #7 (14/14); **automated in CI by #8** | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) (manual); automated in CI by #8 |
+| #50 | Every pooled connection runs in WAL mode with a 5000 ms busy timeout; the pool holds 4 connections (ADR 0021) | `SqliteConcurrencyIT` → `thePoolHoldsFourConnectionsEachInWalModeWithAFiveSecondBusyTimeout` | ☑ #50 |
+| #50 | A Release 1 database (rollback journal, with Links) comes up in WAL mode and still Redirects its Links | `SqliteConcurrencyIT` → `aRelease1DatabaseComesUpInWalModeAndStillRedirectsItsLinks` | ☑ #50 |
+| #50 | The existing suite, including the Flyway clean + migrate reset, passes unchanged with WAL on | Whole `./mvnw verify` suite (every `*IT` resets through `IntegrationTest`) | ☑ #50 |
 
 Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 

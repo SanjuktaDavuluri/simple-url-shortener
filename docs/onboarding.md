@@ -52,6 +52,13 @@ To run a second, throwaway copy next to it, give it its own port and data direct
 | `DATABASE_PATH` | `links.db` | The SQLite database file (schema created by Flyway on startup) |
 | `PORT` | `8000` | HTTP port |
 
+**The database is three files (ADR 0021).** SQLite runs in WAL (write-ahead log) mode with a 5000 ms busy timeout and a pool of 4 connections, set on every connection in `application.properties`. Next to `links.db` you will find `links.db-wal` and `links.db-shm`. The three files belong together:
+
+- **Backups:** don't copy `links.db` alone while the app is running, because recent Links can still be in `links.db-wal`. Either stop the app first and copy all three files, or take an online backup with SQLite: `sqlite3 links.db ".backup backup.db"` or `sqlite3 links.db "VACUUM INTO 'backup.db'"`.
+- **Local disk only:** WAL needs shared memory, so the data directory must be on a local file system (or a container volume backed by one), never NFS or SMB.
+- **Moving:** move or delete the three files together.
+- **Existing databases** (a Release 1 `links.db`, the maintainer's `.local/`) switch to WAL on their first start. To go back to the rollback journal, stop the app so no other connection is open, then run `sqlite3 links.db "PRAGMA journal_mode=DELETE;"`. Don't do this while the service runs: the app turns WAL back on at its next start, and turning it off needs a new ADR.
+
 Browser checks and Lighthouse, against a running app:
 
 ```bash
