@@ -72,6 +72,10 @@ flowchart LR
 - **URL Rules:** only `http`/`https` addresses with a host, at most 2048 characters, and never a link back to the shortener itself. Each refusal comes with a clear Rejection Reason (`422`).
 - **Web page:** a single server-rendered page with no full page reloads, copy-to-clipboard, and light and dark mode. It works with JavaScript off.
 
+### In progress (Release 2, [spec 0003](docs/specs/0003-clickstream.md))
+
+- **Clicks recorded:** every successful `GET` Redirect records one Click (Short Code, time, Referrer Host, Agent Category, Device Class) in a `clicks` table. Clicks are queued and saved in batches by a background writer, so the Redirect never waits for the database. A full queue drops Clicks and counts them, with no error ([ADR 0012](docs/adr/0012-clicks-recorded-asynchronously.md)). The full `Referer` and the raw `User-Agent` are never stored ([ADR 0013](docs/adr/0013-clicks-store-minimal-non-personal-data.md)). A `404`, a `HEAD` request and Link creation record nothing. There is no way to read Clicks over HTTP yet: the stats API comes with R2.
+
 ### Planned ([roadmap](docs/roadmap.md))
 
 | Release | Feature | Decided in |
@@ -155,13 +159,16 @@ curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"u
 | `BASE_URL` | `http://localhost:8000` | The shortener's public address; every Short URL starts with it |
 | `DATABASE_PATH` | `links.db` | Where the SQLite database file lives (schema created by Flyway on startup). It runs in WAL mode, so `links.db-wal` and `links.db-shm` sit beside it: back up, move or delete the three together, and keep them on a local disk ([onboarding](docs/onboarding.md), ADR 0021) |
 | `PORT` | `8000` | HTTP port |
+| `CLICK_QUEUE_CAPACITY` | `10000` | Most Clicks waiting to be saved; any more are dropped and counted (ADR 0012) |
+| `CLICK_BATCH_SIZE` | `500` | Most Clicks saved in one batch |
+| `CLICK_FLUSH_INTERVAL` | `1s` | Longest the background writer waits for a batch to fill before it saves what it has |
 
 ## Repository layout
 
 ```
 src/main/java/…/shortener/   the service: controllers, LinkService, Link Store, Short Code generator
 src/main/java/…/rules/       URL Rules and the Rule Set (ADR 0004)
-src/main/java/…/clicks/      Click Classifier: Referer and User-Agent reduced to Referrer Host, Agent Category, Device Class (spec 0003)
+src/main/java/…/clicks/      Clickstream (spec 0003): Click Classifier, Click Recorder (queue + batch writer), Click Store
 src/main/resources/          configuration, Flyway migrations, Thymeleaf templates, static assets
 src/test/                    unit tests (*Test) and integration tests (*IT)
 e2e/                         browser checks (Playwright) and Lighthouse audits
