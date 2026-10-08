@@ -1,0 +1,155 @@
+[
+  {
+    "key": "T1",
+    "title": "Liveness and Readiness (db, clickQueue) on a separate management port, with only health and prometheus exposed",
+    "kind": "Feature",
+    "blocked_by": [],
+    "what": "First tracer bullet for ADR 0015: an operator can ask 'is it up and ready?' on a management port that is never the public port. Add spring-boot-starter-actuator and micrometer-registry-prometheus (both managed by the Spring Boot 4.1.1 parent; a dependency change, so it goes through the Approval Checkpoint). In application.properties: management.server.port=${MANAGEMENT_PORT:8081}; management.endpoints.web.exposure.include=health,prometheus; management.endpoint.health.probes.enabled=true; health groups liveness = livenessState and readiness = readinessState, db, clickQueue, with show-components=always and no details. Add a clickQueue health indicator in the configuration layer that reads the Click Recorder's stats() and reports OUT_OF_SERVICE when pending Clicks reach the queue capacity (saturated) and UP otherwise; it never blocks and never touches the database. QueuedClickRecorder exposes its capacity for this (queue, writer and shutdown behaviour unchanged). Database readiness is Actuator's standard db indicator on the SQLite DataSource; Flyway still runs before the web server starts, so a ready instance is always a migrated one. The test harness (IntegrationTest, TestApps) runs the management server on a random port (0, read with @LocalManagementPort) and gains plain-HTTP helpers to read health. Plan 0001 gains the operability phase (next free phase number) and principle 1 declares the management HTTP surface as a seam; principle 2 records the stand-ins used here. Spec 0006: stories 1–5, 7–12, Implementation Decisions (Management server, Click queue health indicator, Database readiness), Testing Decisions seam 1 (Actuator 404s) and seam 2. ADR 0015, ADR 0012, ADR 0021.",
+    "acceptance": [
+      "pom.xml adds spring-boot-starter-actuator and micrometer-registry-prometheus without explicit versions (managed by the Boot parent), and no other dependency",
+      "GET /actuator/health/liveness on the management port answers 200 with status UP; GET /actuator/health/readiness answers 200 UP and names the components db, clickQueue and readinessState, each with its status and without details",
+      "On a TestApps instance whose database file is removed or made unreadable after startup (or a stand-in DataSource if the file approach is flaky), readiness answers 503 with db DOWN while liveness still answers 200 UP",
+      "On a TestApps instance with a small CLICK_QUEUE_CAPACITY and a blocked stand-in Click Store (the spec 0003 seam), readiness answers 503 with clickQueue OUT_OF_SERVICE once the queue is full, and 200 UP again after the store is released and the queue drains",
+      "On the public port, /actuator, /actuator/health, /actuator/health/readiness and /actuator/prometheus all answer 404 like any unknown path",
+      "On the management port, /actuator/env, /actuator/configprops, /actuator/heapdump and /actuator/shutdown answer 404; /actuator/prometheus answers 200 with Prometheus text",
+      "A unit test shows QueuedClickRecorder reports its configured capacity; its existing unit tests stay green",
+      "The whole existing ./mvnw verify suite passes unchanged (no public status code, body, route or header changes)",
+      "Plan 0001 gains the operability phase, principle 1 declares the management port as a seam, principle 2 lists the unreachable-database stand-in, and the traceability matrix gains rows for each criterion above"
+    ]
+  },
+  {
+    "key": "T2",
+    "title": "Request ID: X-Request-Id on every public response, safe incoming IDs reused, the ID in the logging MDC",
+    "kind": "Feature",
+    "blocked_by": [],
+    "what": "Every public response carries a Request ID an API client or a person reporting a problem can quote. Add RequestIdFilter, a servlet filter ordered first and registered on the public port only (management-port probes are untouched). It reads X-Request-Id: a value of 1–64 characters from [A-Za-z0-9._-] is used as is; anything else, or no header, is replaced with a new random UUID, and a rejected value is never logged. Before calling the rest of the chain it puts the ID in the MDC as request_id and sets the X-Request-Id response header, so the header is present on 2xx, the 302 Redirect, 4xx, 5xx, the web page and static assets; afterwards it clears the MDC so no ID leaks onto another request on the same thread. Unexpected exceptions answer 500 with no stack trace or exception message (server.error.include-stacktrace=never, server.error.include-message=never), still carrying X-Request-Id. Existing 4xx responses are unchanged. The access line and JSON logging are T3. Spec 0006: stories 21–23, 26 (client side), Implementation Decisions (Request ID, Errors), Testing Decisions seam 1. ADR 0015.",
+    "acceptance": [
+      "Integration tests show an X-Request-Id response header on a 201 Link creation, a 302 Redirect, a 400 Rejection, a 404 unknown Short Code, the web page, a static asset and a forced 500",
+      "A safe incoming X-Request-Id (e.g. abc-123_DEF.4) is echoed back unchanged",
+      "An empty value, a 65-character value, and values containing a newline, a double quote or a { are each replaced by a generated ID (not echoed), and two requests without the header get different IDs",
+      "A forced 500 from a stand-in failing handler on its own TestApps instance answers 500 with X-Request-Id and a body containing neither the exception message nor a stack trace",
+      "A unit test of RequestIdFilter shows request_id is in the MDC while the chain runs and absent after the filter returns, including when the chain throws",
+      "Health and metrics responses on the management port are not affected by the filter",
+      "All existing HTTP tests pass unchanged apart from the new header (statuses, bodies, routes, Location and Cache-Control: no-store as before)",
+      "Plan 0001 principle 2 lists the failing-handler stand-in and the traceability matrix gains rows for each criterion above"
+    ]
+  },
+  {
+    "key": "T5",
+    "title": "Configuration is validated at startup: a bad BASE_URL or Click setting stops startup naming the variable",
+    "kind": "Feature",
+    "blocked_by": [],
+    "what": "Catch misconfiguration at deploy time instead of as wrong Short URLs or a broken Click Recorder. ShortenerProperties validates its values when bound; a failed check stops startup with a message naming the environment variable and the bad value. Startup fails when BASE_URL isn't an absolute http/https URL with a host and no query or fragment, or when any CLICK_* setting (CLICK_QUEUE_CAPACITY, CLICK_BATCH_SIZE, CLICK_FLUSH_INTERVAL, CLICK_SHUTDOWN_TIMEOUT) isn't positive, or when CLICK_BATCH_SIZE is larger than CLICK_QUEUE_CAPACITY. A trailing / on BASE_URL is removed, so Short URLs never contain //, and the Self-link Rule keeps working with the normalised Base URL. The defaults still start. The SQLite pool size, WAL mode and busy timeout stay fixed (ADR 0021). Spec 0006: stories 28, 31, Implementation Decisions (Configuration: Validation at startup). Prior art: ConfigurationIT, ClickSettingsIT, TestApps.",
+    "acceptance": [
+      "Through TestApps startup, each of these stops startup with a message naming its environment variable: a relative BASE_URL, an ftp: BASE_URL, a BASE_URL with a query, a BASE_URL with a fragment, CLICK_BATCH_SIZE=0, a non-positive CLICK_QUEUE_CAPACITY, a zero CLICK_FLUSH_INTERVAL or CLICK_SHUTDOWN_TIMEOUT, and CLICK_BATCH_SIZE larger than CLICK_QUEUE_CAPACITY",
+      "A BASE_URL with a trailing / gives Short URLs without // and still rejects a Self-link to that Base URL",
+      "The default configuration and every existing test configuration still start, and the existing suite passes unchanged",
+      "application.properties pool, WAL and busy-timeout lines are untouched",
+      "The traceability matrix gains rows for each criterion above"
+    ]
+  },
+  {
+    "key": "T3",
+    "title": "Structured JSON logs carrying the Request ID, one access line per request, and the log privacy tests",
+    "kind": "Feature",
+    "blocked_by": [
+      "T2"
+    ],
+    "what": "Make the console log answer 'what happened to this request?' without ever leaving a personal trail. Switch to Spring Boot's built-in structured console logging in ECS format (logging.structured.format.console=ecs) so each line is one JSON object with timestamp, level, logger, message and any exception, and the MDC request_id becomes a field. Add LOG_FORMAT (json default, or text for Spring's plain pattern); any other value stops startup with a message naming LOG_FORMAT. RequestIdFilter (T2) writes one INFO access line per completed public request with http_method, route (the matched handler pattern such as /{short_code}, or unmatched), status and duration_ms, and never the raw path, query string, headers or body. An unexpected exception on the public port is logged once at ERROR with its stack trace and the Request ID. Background threads (the Click writer) log without a Request ID. Logs never contain Long URLs, Referer or User-Agent values, IP addresses, request bodies, query strings, Authorization headers or Manage Tokens (ADR 0013, ADR 0014; spec 0005 adds the token in parallel). Plan 0001 principle 1 declares captured log output (OutputCaptureExtension) as a seam; tests parse lines as JSON and assert on fields, never on message text. Spec 0006: stories 19–20, 23–27, Implementation Decisions (Request ID access line, Structured logging, Errors, What logs never contain), Testing Decisions seam 3.",
+    "acceptance": [
+      "With the default settings, every captured console line parses as exactly one JSON object with timestamp, level, logger and message fields",
+      "A Redirect produces one access line with http_method GET, route /{short_code}, status 302, a numeric duration_ms and request_id equal to the response's X-Request-Id, and with no raw path or query string",
+      "On a TestApps instance with a throwing stand-in Click Recorder, the Click handover failure warning logged inside the handler carries the same request_id as the response's X-Request-Id",
+      "Privacy: after creating a Link with a distinctive Long URL, Redirecting it with a distinctive Referer, User-Agent, Authorization header and query string, triggering a Rejection and a forced 500, none of those distinctive values appears anywhere in the captured output",
+      "A forced 500 is logged exactly once at ERROR with a stack trace and the request's request_id; 4xx responses (Rejection, malformed request, unknown Short Code) produce no ERROR line",
+      "An unsafe incoming X-Request-Id value does not appear in the captured output",
+      "LOG_FORMAT=text gives non-JSON lines; an unknown LOG_FORMAT stops startup with a message naming LOG_FORMAT",
+      "Plan 0001 principle 1 declares captured log output as a seam and the traceability matrix gains rows for each criterion above"
+    ]
+  },
+  {
+    "key": "T4",
+    "title": "Domain and Click metrics in Prometheus: Links created, Redirects, Rejections by Rule, Collisions, Clicks recorded/dropped/pending",
+    "kind": "Feature",
+    "blocked_by": [
+      "T1"
+    ],
+    "what": "Answer 'how is it behaving?' with the metrics ADR 0015 lists, on the management port's /actuator/prometheus. Standard http.server.requests (method, uri route pattern, status, outcome), JVM, process and hikaricp.* metrics come from auto-configuration. Add: shortener.links.created (counter, in LinkService.create after a save succeeds); shortener.redirects (counter, tag outcome=found|not_found, in LinkController.followLink for GET only, like Clicks); shortener.rejections (counter, tag rule = a stable name per Rule, e.g. self_link, http_scheme, in LinkService.create, so both the API and the web page count); shortener.collisions (counter, each Short Code drawn again); shortener.clicks.recorded and shortener.clicks.dropped (function counters over the Click Recorder's stats()); shortener.clicks.pending (gauge, queue depth) and shortener.clicks.queue.capacity (gauge). The Click Recorder gains no Micrometer dependency: a small binder in the configuration layer registers the functions. To tag Rejections, RuleResult.Rejected names the Rule that rejected (an additive change to the rules module, ADR 0004); Rejection Reasons are unchanged. No tag ever carries a Short Code, Long URL, host or Rejection Reason. Counter increments only: no change to control flow, responses or the Click handover. Spec 0006: stories 14–17, Implementation Decisions (Metrics table), Testing Decisions seam 2 (Prometheus). ADR 0015, ADR 0012, ADR 0004.",
+    "acceptance": [
+      "/actuator/prometheus on the management port lists every metric in the spec's table, including http_server_requests_seconds with a uri tag of the route pattern, JVM metrics and hikaricp metrics",
+      "After a scripted sequence (one Link created, one Rejection by the Self-link Rule, one scripted Collision, two Redirects of a known Short Code, one unknown Short Code), shortener_links_created_total rises by 1, shortener_rejections_total{rule=\"self_link\"} by 1, shortener_collisions_total by 1, shortener_redirects_total{outcome=\"found\"} by 2 and {outcome=\"not_found\"} by 1; expected values come from the spec, not the code",
+      "After a flush, shortener_clicks_recorded_total, shortener_clicks_dropped_total and shortener_clicks_pending match the Click Recorder's stats(), and shortener_clicks_queue_capacity equals CLICK_QUEUE_CAPACITY",
+      "A HEAD or non-GET request to a Short Code does not change shortener_redirects_total",
+      "Rule unit tests show each Rule's rejected result carries its stable name; existing Rejection Reasons and Rule tests are unchanged",
+      "No exported shortener_* series has a tag holding a Short Code, Long URL, host or Rejection Reason",
+      "The Click Recorder package has no Micrometer import",
+      "Existing tests pass unchanged; the traceability matrix gains rows for each criterion above"
+    ]
+  },
+  {
+    "key": "T6",
+    "title": "Graceful shutdown in a tested order, with Readiness OUT_OF_SERVICE on stop, SHUTDOWN_TIMEOUT, and startup and shutdown log lines",
+    "kind": "Feature",
+    "blocked_by": [
+      "T1",
+      "T3"
+    ],
+    "what": "Make a stop safe and bounded. Set server.shutdown=graceful explicitly and spring.lifecycle.timeout-per-shutdown-phase=${SHUTDOWN_TIMEOUT:10s}. On SIGTERM or context close the order is: (1) readiness reports OUT_OF_SERVICE (availability REFUSING_TRAFFIC) for as long as the management server answers; (2) the public server refuses new connections and in-flight requests finish, up to SHUTDOWN_TIMEOUT; (3) the Click Recorder flushes, up to CLICK_SHUTDOWN_TIMEOUT (its existing SmartLifecycle phase already stops after the web server, ADR 0012); (4) the pool closes. With defaults a stop takes at most about 20 s plus pool close. The app logs a 'Shutdown started' line and a 'Shutdown complete' line carrying the Clicks flushed and dropped during the stop, taken from QueuedClickRecorder's stop() counts (which it now reports). Once ready, the app logs one INFO startup line listing the effective non-secret settings: port, management port, Base URL, database path, Click settings, SHUTDOWN_TIMEOUT, CLICK_SHUTDOWN_TIMEOUT and log format (any future secret setting must be left out). Spec 0006: stories 6, 32–37, Implementation Decisions (Readiness during shutdown, Graceful shutdown, Startup line), Testing Decisions (Graceful shutdown, Configuration startup line). Prior art: ClickShutdownIT.",
+    "acceptance": [
+      "Readiness on the management port reports OUT_OF_SERVICE once the context starts closing (shown with a slow in-flight request keeping the server draining)",
+      "On a TestApps instance with a stand-in slow handler, a request in flight when the close begins completes with its normal response, and a new connection after the close begins is refused",
+      "With a SHUTDOWN_TIMEOUT shorter than the slow handler, the close finishes within the bound instead of waiting for the handler",
+      "A Redirect served during the shutdown still has its Click saved (extends ClickShutdownIT)",
+      "Captured JSON logs contain a 'Shutdown started' line and a 'Shutdown complete' line whose fields report the Clicks flushed (matching the Clicks queued at stop) and dropped",
+      "Captured JSON logs contain exactly one startup line whose fields list the port, management port, Base URL, database path, Click settings, both shutdown timeouts and the log format",
+      "application.properties sets server.shutdown=graceful and spring.lifecycle.timeout-per-shutdown-phase=${SHUTDOWN_TIMEOUT:10s}",
+      "Plan 0001 principle 2 lists the slow-handler stand-in and the traceability matrix gains rows for each criterion above"
+    ]
+  },
+  {
+    "key": "T7",
+    "title": "scripts/local.sh and the CI browser-check job wait on Readiness; stop waits for the graceful shutdown",
+    "kind": "Feature",
+    "blocked_by": [
+      "T1",
+      "T3",
+      "T6"
+    ],
+    "what": "Make 'the app is up' mean ready, not 'the port answers' (ADR 0015), and leave R11 a readiness check to use. scripts/local.sh: MANAGEMENT_PORT defaults to PORT + 81 (the maintainer's 8000 keeps 8081; a scratch PORT=8765 gets 8846) and is checked to be free before starting like PORT; start waits for /actuator/health/readiness to answer 200 instead of GET /; status prints the readiness status; stop waits up to SHUTDOWN_TIMEOUT + CLICK_SHUTDOWN_TIMEOUT + 5 s, removes the PID file only once the process has exited, and otherwise says it is still running; LOG_FORMAT is passed through. .github/workflows/ci.yml browser-checks job: 'Start the app' polls http://localhost:8081/actuator/health/readiness instead of $BASE_URL/. Job names don't change, so the required checks on main are unaffected. Never stop, restart or reset the maintainer's service: verify only on a scratch port and data directory. Spec 0006: stories 9, 13, 38, Implementation Decisions (scripts/local.sh, CI), Testing Decisions (Scripts).",
+    "acceptance": [
+      "With PORT=8765 DATA_DIR=<scratch dir>, scripts/local.sh start uses management port 8846, refuses to start if it is taken, and returns only after readiness answers 200 (shown by hand in the PR, never against the maintainer's 8000/8081 service)",
+      "scripts/local.sh status prints the readiness status",
+      "scripts/local.sh stop waits for the process to exit within SHUTDOWN_TIMEOUT + CLICK_SHUTDOWN_TIMEOUT + 5 s, removes the PID file only after exit, and reports that the process is still running (keeping the PID file) if it hasn't exited",
+      "LOG_FORMAT set in the environment reaches the app (LOG_FORMAT=text gives plain-text .local/app.log lines)",
+      "The CI browser-checks job's 'Start the app' step polls http://localhost:8081/actuator/health/readiness, and the job names in ci.yml are unchanged",
+      "The browser-checks job (Playwright + Lighthouse) passes on the PR, as the automated proof the readiness wait works",
+      "The traceability matrix gains rows for the scripted checks and the CI readiness wait"
+    ]
+  },
+  {
+    "key": "T8",
+    "title": "First runbook with configuration and metrics references, a configuration-drift test, and the operability documentation updates",
+    "kind": "Docs",
+    "blocked_by": [
+      "T1",
+      "T2",
+      "T3",
+      "T4",
+      "T5",
+      "T6",
+      "T7"
+    ],
+    "what": "Give an operator new to the service a way to run it without the developers. Write docs/runbook.md: how to start (java -jar, scripts/local.sh), check (liveness, readiness, metrics on the management port), diagnose (finding a request by Request ID in the JSON logs, common symptoms such as readiness 503 from db or clickQueue, Click drops, pool exhaustion under SQLite's single writer, and what to look at) and stop (the shutdown order and its bound, SHUTDOWN_TIMEOUT + CLICK_SHUTDOWN_TIMEOUT plus pool close, about 20 s with defaults, so grace periods must exceed it). Include: the configuration reference (every environment variable, its default and meaning: PORT, MANAGEMENT_PORT, BASE_URL, DATABASE_PATH, CLICK_QUEUE_CAPACITY, CLICK_BATCH_SIZE, CLICK_FLUSH_INTERVAL, CLICK_SHUTDOWN_TIMEOUT, SHUTDOWN_TIMEOUT, LOG_FORMAT, and Spring's LOGGING_LEVEL_* binding), with the fixed SQLite pool size, WAL mode and busy timeout listed as not configurable with a link to ADR 0021; the metrics reference (name, type, tags, meaning) and the queries worth alerting on; the data files (links.db, links.db-wal, links.db-shm) and how to back them up safely; what logs contain and never contain, log volume and how to raise the access logger to WARN, rotation being the platform's job; and the exposure rules (management port on the operator network only, HTTPS in front). Add a unit test that reads application.properties, collects every ${NAME: placeholder and asserts each NAME appears in the runbook's configuration table. Move the configuration table from docs/onboarding.md into the runbook and link to it. Update docs/architecture.md (request path through RequestIdFilter, the management port, the shutdown sequence), CONTEXT.md (Request ID, Liveness, Readiness, with the spec's Avoid terms), README.md (runbook in the reviewer's map), docs/specs/README.md (spec 0006 in the index) and the R12 row of docs/roadmap.md. Spec 0006: stories 18, 29–30, 36, 39–43, Implementation Decisions (Configuration), Impact Analysis (Documents to update), Testing Decisions (Configuration reference drift).",
+    "acceptance": [
+      "docs/runbook.md exists with sections for start, check, diagnose and stop, the configuration reference, the metrics reference, data files and backup, logging rules and exposure rules",
+      "A unit test fails when application.properties contains a ${NAME: placeholder whose NAME isn't in the runbook's configuration table, and passes on the current files (shown red by temporarily adding an undocumented placeholder)",
+      "Every metric in spec 0006's table is documented in the runbook with name, type, tags and meaning, and the stop bound is stated",
+      "docs/onboarding.md no longer holds its own configuration table and links to the runbook's reference",
+      "CONTEXT.md defines Request ID, Liveness and Readiness, with Avoid terms as in the spec",
+      "docs/architecture.md shows the request path with RequestIdFilter, the management port and the shutdown sequence in Mermaid",
+      "README.md lists the runbook; docs/specs/README.md indexes spec 0006; the R12 row in docs/roadmap.md reflects the delivered work",
+      "The traceability matrix gains rows for the drift test and confirms every spec 0006 acceptance criterion maps to a test",
+      "./mvnw verify passes"
+    ]
+  }
+]
