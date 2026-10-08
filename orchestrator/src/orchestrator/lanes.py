@@ -160,7 +160,8 @@ class Begin:
 
     def reconcile(self, state: RunState) -> list[Lane]:
         """Keep Lanes whose ticket is unchanged, redo unmerged Lanes whose ticket changed, follow up
-        merged ones with a new ticket (merged work is never rewritten), and add new tickets."""
+        merged ones with a new ticket (merged work is never rewritten), and add new tickets. A Lane
+        whose PR merged while the Run waited elsewhere counts as merged, never redone."""
         ctx = self.ctx
         old = {ln["key"]: ln for ln in state["lanes"]}
         lanes: list[Lane] = []
@@ -170,8 +171,9 @@ class Begin:
                 lanes.append(new_lane(t, state["published"][t["key"]]))
             elif current["ticket_hash"] == lineage.ticket_hash(t):
                 lanes.append(current)
-            elif current["status"] == "merged":
-                lanes += [current, self.follow_up(state, current, t)]
+            elif current["status"] == "merged" or merged_on_github(ctx, current["pr"]):
+                merged = finish_merged(ctx, current)
+                lanes += [merged, self.follow_up(state, merged, t)]
             else:
                 if current["status"] != "pending":
                     discard(ctx, current)
@@ -208,6 +210,31 @@ class Begin:
         )
         ctx.mirror(f"Follow-up #{issue} opened for merged #{merged['issue']}: its ticket changed.")
         return new_lane({**ticket, "key": key, "title": title}, issue)
+
+
+def merged_on_github(ctx: RunContext, pr: int | None) -> bool:
+    return pr is not None and ctx.github.pr(pr).state == "merged"
+
+
+def finish_merged(ctx: RunContext, current: Lane) -> Lane:
+    """Record a Lane as merged; a no-op for one already recorded."""
+    if current["status"] == "merged":
+        return current
+    record_gate(ctx, "pr", "required checks pass", [], current["key"])
+    ctx.event("stage_passed", "pr", {"lane": current["key"], "pr": current["pr"]})
+    ctx.event("lane_finished", "pr", {"lane": current["key"], "outcome": "merged"})
+    ctx.github.add_to_board(current["issue"], {"Status": "Done"})
+    return {**current, "status": "merged"}
+
+
+def earlier_pr(ctx: RunContext, key: str) -> int | None:
+    """The last PR this Run opened for the Lane, from the Event Log."""
+    prs = [
+        e["data"]["pr"]
+        for e in ctx.log.read()
+        if e["type"] == "pr_opened" and e["data"].get("lane") == key
+    ]
+    return prs[-1] if prs else None
 
 
 def discard(ctx: RunContext, current: Lane) -> None:
@@ -437,11 +464,7 @@ class Schedule:
         ctx, pr = self.ctx, current["pr"]
         outcome = merge_outcome(ctx, pr)
         if outcome == "merged":
-            record_gate(ctx, "pr", "required checks pass", [], current["key"])
-            ctx.event("stage_passed", "pr", {"lane": current["key"], "pr": pr})
-            ctx.event("lane_finished", "pr", {"lane": current["key"], "outcome": "merged"})
-            ctx.github.add_to_board(current["issue"], {"Status": "Done"})
-            return {**current, "status": "merged"}
+            return finish_merged(ctx, current)
         if outcome == "closed":
             reason = f"PR #{pr} was closed without merging"
             return {**current, "status": "rolling_back", "rollback": {"reason": reason, "by": None}}
@@ -491,8 +514,15 @@ class Schedule:
         for key, current in lanes.items():
             if in_flight >= limit:
                 return
-            ready = all(lanes[b]["status"] == "merged" for b in current["blocked_by"])
-            if current["status"] != "pending" or not ready:
+            if current["status"] != "pending":
+                continue
+            earlier = earlier_pr(ctx, key)
+            if merged_on_github(ctx, earlier):
+                # Its PR merged after the Run last looked (a re-plan redid the Lane): never redo it.
+                lanes[key] = finish_merged(ctx, {**current, "pr": earlier})
+                ctx.mirror(f"Lane **{key}** is already merged in PR #{earlier}: not redone.")
+                continue
+            if not all(lanes[b]["status"] == "merged" for b in current["blocked_by"]):
                 continue
             lane_tree(ctx, current)  # branched from main as it is now, with its blockers merged
             data = {"lane": key, "issue": current["issue"]}

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from lane_fixtures import Plan, implemented, lane_pr
 from test_design_decompose import breakdown, ticket, writes_adrs
 from test_lane_end_to_end import git, merge, of_type, on_remote, stage_state, writes
@@ -11,6 +12,7 @@ from test_requirements_stage import SPEC_PATH, spec_text, writes_spec
 
 from conftest import Orchestrate
 from fakes import InMemoryGitHub, ScriptedAgent
+from orchestrator import lanes
 from orchestrator.agent import StepRequest, StepResult
 from orchestrator.hashing import content_hash
 
@@ -251,6 +253,68 @@ def test_a_change_to_a_merged_ticket_in_a_live_run_creates_a_follow_up_ticket(
     assert github.issue_meta[issue.number]["milestone"] == "Release 2: Orchestrated delivery"
     assert github.pr(t1_pr).state == "merged"  # merged work is never reopened or rewritten
     assert "T1-f1" in implemented(agent) and implemented(agent).count("T1") == 1
+
+
+def test_a_lane_whose_pr_merges_during_a_replan_is_followed_up_not_redone(
+    orchestrate: Orchestrate, github: InMemoryGitHub, agent: ScriptedAgent, repo: Path, plan: Plan
+) -> None:
+    plan(T1, T2)
+    orchestrate("resume", "R-0001")  # T1 and T2 wait for their merges
+    t1_pr = lane_pr(github, "T1") or 0
+    edited = tickets_on(repo, "main")
+    edited[0]["acceptance"].append("Expired links return 410")
+    human_pushes(
+        repo, "main", {TICKETS: json.dumps(edited, indent=2) + "\n"}, "docs: extend T1 (#42)"
+    )
+    orchestrate("replan", "R-0001")
+    merge(repo, github, t1_pr)  # merged while the Run waits for the tickets approval
+    agent.script["implement:T1-f1"] = [writes({"feature.txt": "x\n", "T1f.txt": "410\n"})]
+    agent.script["document:T1-f1"] = [writes({}, docs_updated=[])]
+
+    orchestrate("approve", "R-0001", "tickets")
+
+    assert implemented(agent).count("T1") == 1  # never rebuilt on top of its own merge
+    assert github.pr(t1_pr).state == "merged"
+    assert {"lane": "T1", "outcome": "merged"} in [
+        e["data"] for e in of_type(repo, "lane_finished")
+    ]
+    assert [e["data"]["follows"] for e in of_type(repo, "follow_up_created")] == [100]
+
+
+def test_a_lane_redone_before_its_pr_merged_is_recognised_as_merged_when_it_would_start(
+    orchestrate: Orchestrate,
+    github: InMemoryGitHub,
+    agent: ScriptedAgent,
+    repo: Path,
+    plan: Plan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Run re-planned before this check existed already holds the merged Lane as pending."""
+    plan(T1, T2)
+    orchestrate("resume", "R-0001")
+    t1_pr = lane_pr(github, "T1") or 0
+    edited = tickets_on(repo, "main")
+    edited[0]["acceptance"].append("Expired links return 410")
+    human_pushes(
+        repo, "main", {TICKETS: json.dumps(edited, indent=2) + "\n"}, "docs: extend T1 (#42)"
+    )
+    orchestrate("replan", "R-0001")
+    merge(repo, github, t1_pr)
+    reconcile = lanes.Begin.reconcile
+
+    def without_the_merge_check(self: lanes.Begin, state: Any) -> Any:
+        with monkeypatch.context() as patched:
+            patched.setattr(lanes, "merged_on_github", lambda ctx, pr: False)
+            return reconcile(self, state)
+
+    monkeypatch.setattr(lanes.Begin, "reconcile", without_the_merge_check)
+
+    orchestrate("approve", "R-0001", "tickets")
+
+    assert implemented(agent).count("T1") == 1
+    assert {"lane": "T1", "outcome": "merged"} in [
+        e["data"] for e in of_type(repo, "lane_finished")
+    ]
 
 
 # Spec amendments: agents propose, humans approve, and the change reaches main through a PR
