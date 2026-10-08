@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.JsonNode;
 
 /** The JSON API: create a Link, and follow a Short URL. */
 @RestController
@@ -57,20 +58,40 @@ class LinkController {
     this.clock = clock;
   }
 
+  /**
+   * Creates a Link. Both fields are read as JSON nodes so nothing is coerced, and the request is
+   * checked in order (spec 0004): its shape first (a {@code url} that is missing or not a string is
+   * a malformed request), then the Lifetime, then the Rule Set (in {@link LinkService}).
+   */
   @PostMapping("/links")
   @ResponseStatus(HttpStatus.CREATED)
   CreatedLink createLink(@RequestBody CreateLinkRequest request) {
-    if (request.url() == null) {
+    if (request.url() == null || !request.url().isString()) {
       throw new MalformedRequestException();
     }
-    Optional<Lifetime> lifetime =
-        Optional.ofNullable(request.expiresInDays()).map(Lifetime::ofDays);
-    Link link = linkService.create(request.url(), lifetime);
+    Optional<Lifetime> lifetime = lifetimeOf(request.expiresInDays());
+    Link link = linkService.create(request.url().stringValue(), lifetime);
     return new CreatedLink(
         link.shortCode(),
         link.shortUrl(),
         link.longUrl(),
         link.expiry().map(Instant::toString).orElse(null));
+  }
+
+  /**
+   * The Lifetime {@code expires_in_days} gives: none when it is absent or {@code null}, otherwise
+   * only a JSON integer from 1 to 365. Strings, decimals, booleans and objects are never coerced.
+   *
+   * @throws InvalidLifetimeException if it is present and isn't a Lifetime
+   */
+  private static Optional<Lifetime> lifetimeOf(JsonNode expiresInDays) {
+    if (expiresInDays == null || expiresInDays.isNull()) {
+      return Optional.empty();
+    }
+    if (!expiresInDays.isIntegralNumber() || !expiresInDays.canConvertToInt()) {
+      throw new InvalidLifetimeException();
+    }
+    return Optional.of(Lifetime.ofDays(expiresInDays.intValue()));
   }
 
   /**
@@ -163,8 +184,11 @@ class LinkController {
     return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, MALFORMED_REQUEST);
   }
 
-  /** {@code expires_in_days} is optional: absent or {@code null} means the Link never expires. */
-  record CreateLinkRequest(String url, @JsonProperty("expires_in_days") Integer expiresInDays) {}
+  /**
+   * The request body, read as JSON nodes so the controller decides what is malformed or invalid.
+   * {@code expires_in_days} is optional: absent or {@code null} means the Link never expires.
+   */
+  record CreateLinkRequest(JsonNode url, @JsonProperty("expires_in_days") JsonNode expiresInDays) {}
 
   /** {@code expires_at} is always present: ISO-8601 UTC, or {@code null} if it never expires. */
   record CreatedLink(
