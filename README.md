@@ -153,7 +153,7 @@ curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"u
 | Setting | Default | Purpose |
 |---|---|---|
 | `BASE_URL` | `http://localhost:8000` | The shortener's public address; every Short URL starts with it |
-| `DATABASE_PATH` | `links.db` | Where the SQLite database file lives (schema created by Flyway on startup) |
+| `DATABASE_PATH` | `links.db` | Where the SQLite database file lives (schema created by Flyway on startup). It runs in WAL mode, so `links.db-wal` and `links.db-shm` sit beside it: back up, move or delete the three together, and keep them on a local disk ([onboarding](docs/onboarding.md), ADR 0021) |
 | `PORT` | `8000` | HTTP port |
 
 ## Repository layout
