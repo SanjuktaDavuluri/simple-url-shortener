@@ -74,7 +74,7 @@ flowchart LR
 
 ### In progress (Release 2, [spec 0003](docs/specs/0003-clickstream.md))
 
-- **Clicks recorded:** every successful `GET` Redirect records one Click (Short Code, time, Referrer Host, Agent Category, Device Class) in a `clicks` table. Clicks are queued and saved in batches by a background writer, so the Redirect never waits for the database. A full queue drops Clicks and counts them, with no error ([ADR 0012](docs/adr/0012-clicks-recorded-asynchronously.md)). The full `Referer` and the raw `User-Agent` are never stored ([ADR 0013](docs/adr/0013-clicks-store-minimal-non-personal-data.md)). A `404`, a `HEAD` request and Link creation record nothing. There is no way to read Clicks over HTTP yet: the stats API comes with R2.
+- **Clicks recorded:** every successful `GET` Redirect records one Click (Short Code, time, Referrer Host, Agent Category, Device Class) in a `clicks` table. Clicks are queued and saved in batches by a background writer, so the Redirect never waits for the database. The `302` is sent before the Click is handed over, and a failure while handing it over costs only that Click (logged as a warning), never the Redirect; a Redirect also completes while a Click batch holds SQLite's write lock. A full queue drops Clicks and counts them, with no error ([ADR 0012](docs/adr/0012-clicks-recorded-asynchronously.md)). The full `Referer` and the raw `User-Agent` are never stored ([ADR 0013](docs/adr/0013-clicks-store-minimal-non-personal-data.md)). A `404`, a `HEAD` request and Link creation record nothing. There is no way to read Clicks over HTTP yet: the stats API comes with R2.
 
 ### Planned ([roadmap](docs/roadmap.md))
 
