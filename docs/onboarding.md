@@ -5,8 +5,8 @@ A guide for an engineer joining the project, or a reviewer who wants to run it a
 ## 1. Read these first (10 minutes)
 
 1. **[README](../README.md):** what the product does, the two planes (the product and the delivery orchestrator), and links to everything else.
-2. **[`CONTEXT.md`](../CONTEXT.md):** the domain vocabulary. Code, tickets and docs all use these terms (*Link*, *Long URL*, *Short Code*, *Rule*, *Redirect*, *Click*), so learn them before reading code.
-3. **[`docs/architecture.md`](architecture.md):** the two planes, then the create and Redirect flows as sequence diagrams.
+2. **[`CONTEXT.md`](../CONTEXT.md):** the domain vocabulary. Code, tickets and docs all use these terms (*Link*, *Long URL*, *Short Code*, *Rule*, *Redirect*, *Click*, *Click Recorder*, *Referrer Host*, *Agent Category*, *Device Class*), so learn them before reading code.
+3. **[`docs/architecture.md`](architecture.md):** the two planes, the create and Redirect flows as sequence diagrams, the Click flow, and SQLite's concurrency settings.
 4. **[ADRs](adr/), at least 0001–0006:** why the service is built the way it is. Each one lists the options that were rejected.
 5. **[`CLAUDE.md`](../CLAUDE.md):** the project charter, the working rules that people and Claude Code both follow.
 
@@ -51,6 +51,12 @@ To run a second, throwaway copy next to it, give it its own port and data direct
 | `BASE_URL` | `http://localhost:8000` | The public address; every Short URL starts with it |
 | `DATABASE_PATH` | `links.db` | The SQLite database file (schema created by Flyway on startup) |
 | `PORT` | `8000` | HTTP port |
+| `CLICK_QUEUE_CAPACITY` | `10000` | Most Clicks waiting in the Click Recorder's queue; a Click that arrives when it is full is dropped and counted ([ADR 0012](adr/0012-clicks-recorded-asynchronously.md)) |
+| `CLICK_BATCH_SIZE` | `500` | Most Clicks the background writer saves in one batch (one Click Store call, one transaction) |
+| `CLICK_FLUSH_INTERVAL` | `1s` | Longest the writer waits for a batch to fill before saving what it has, so a Click is stored about this long after its Redirect; also the shortest gap between two dropped-Click warnings |
+| `CLICK_SHUTDOWN_TIMEOUT` | `10s` | Longest a normal shutdown waits, after the web server stops, for queued Clicks to be saved; any still unsaved are dropped, counted and logged. Shutdown can take up to this long |
+
+The `CLICK_*` settings are optional and bind to `shortener.clicks.*` in `application.properties` ([spec 0003](specs/0003-clickstream.md)). In tests, `IntegrationTest.storedClicks(shortCode)` flushes the Click Recorder and lists through the Click Store, so tests never sleep waiting for a batch.
 
 **The database is three files (ADR 0021).** SQLite runs in WAL (write-ahead log) mode with a 5000 ms busy timeout and a pool of 4 connections, set on every connection in `application.properties`. Next to `links.db` you will find `links.db-wal` and `links.db-shm`. The three files belong together:
 
@@ -69,14 +75,20 @@ Browser checks and Lighthouse, against a running app:
 
 | Where | What |
 |---|---|
-| `LinkController`, `PageController` | The JSON API (`POST /links`, `GET /{shortCode}`) and the web page (`GET /`, `POST /`) |
+| `LinkController`, `PageController` | The JSON API (`POST /links`, `GET /{shortCode}`) and the web page (`GET /`, `POST /`). `LinkController.followLink` is the Redirect: after sending the `302` for a `GET`, it builds a Click and hands it to the Click Recorder (never for a `404` or a `HEAD`) |
 | `LinkService` | Create-a-Link: run the Rule Set, draw Short Codes, retry on Collision |
 | `rules/` | One class per URL Rule, plus the ordered `RuleSet` ([ADR 0004](adr/0004-url-rules-as-separate-module.md)) |
 | `LinkStore`, `JdbcLinkStore` | Storage interface and its SQLite implementation ([ADR 0002](adr/0002-sqlite-for-v1-storage.md)) |
 | `ShortCodeGenerator`, `RandomShortCodeGenerator` | 7-character base62 codes ([ADR 0003](adr/0003-random-short-codes.md)) |
-| `src/main/resources/db/migration/` | Flyway migrations; the schema only changes through a new migration |
+| `clicks/Click`, `ClickClassification`, `AgentCategory`, `DeviceClass` | The Click value (Short Code, UTC time, Referrer Host, Agent Category, Device Class) and its attributes; nothing that could identify a person ([ADR 0013](adr/0013-clicks-store-minimal-non-personal-data.md), [spec 0003](specs/0003-clickstream.md)) |
+| `clicks/ClickClassifier`, `BotPatterns` | Pure reduction of the raw `Referer` and `User-Agent` to the Referrer Host, Agent Category and Device Class; `BotPatterns` is the one maintained list of crawler and link-preview patterns |
+| `clicks/ClickRecorder`, `QueuedClickRecorder`, `ClickRecorderStats` | The Click Recorder interface (`record` returns at once, never throws) and its implementation: a bounded queue, one background batch writer, dropped-and-counted loss, `stats()` and `flush()`, and a shutdown flush as a `SmartLifecycle` bean that stops after the web server ([ADR 0012](adr/0012-clicks-recorded-asynchronously.md)) |
+| `clicks/ClickStore`, `JdbcClickStore` | The Click Store: save a batch, list a Short Code's Clicks oldest first. The only code that touches the `clicks` table; R2's stats API reads through it |
+| `ClicksConfiguration` | Wires the `QueuedClickRecorder` from the `CLICK_*` settings and the UTC `Clock` that times each Click |
+| `src/main/resources/application.properties` | Every setting with its default, including the Click settings and SQLite's WAL mode, busy timeout and pool of 4 ([ADR 0021](adr/0021-sqlite-wal-busy-timeout-and-small-connection-pool.md)) |
+| `src/main/resources/db/migration/` | Flyway migrations; the schema only changes through a new migration (`V2__create_clicks.sql` adds `clicks`) |
 | `src/main/resources/templates/`, `static/` | Thymeleaf page and fragments, CSS, self-hosted HTMX ([ADR 0006](adr/0006-htmx-progressive-enhancement-web-page.md)) |
-| `src/test/` | `*Test`: unit tests. `*IT`: integration tests that extend `IntegrationTest`, which resets the database before every test and controls Short Codes through a scripted generator |
+| `src/test/` | `*Test`: unit tests. `*IT`: integration tests that extend `IntegrationTest`, which flushes the Click Recorder and resets the database before every test, and controls Short Codes through a scripted generator and time through a fixed `TestClock`. Stored Clicks are observed through the Click Store (`storedClicks`). `TestApps` starts extra instances, for restarts and stand-ins |
 | `e2e/` | Playwright browser checks and Lighthouse (≥ 90 in every category) |
 | `orchestrator/` | The delivery orchestrator (Python, uv): setup, commands and tests in [`orchestrator/README.md`](../orchestrator/README.md); design in [ADRs 0007–0011](adr/0007-delivery-orchestrator.md) and [0020](adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md) |
 

@@ -6,7 +6,7 @@ A small, backend-focused URL shortener, built in the open as a **complete SDLC c
 2. **Brownfield**: evolving the running system feature by feature.
 3. **Reliability**: making it production-grade, with measurements.
 
-> **Status:** **Release 1 (greenfield) complete**, tagged [`v1.0.0`](docs/releases/v1.0.0.md). [Spec 0001](docs/specs/0001-v1-core.md) is implemented: the JSON API (create, Redirect, URL Rules, Collision handling) and the web page (works with or without JavaScript; Lighthouse 100 in every category). **Releases 2 and 3 are designed** (ADRs 0007–0020); Release 2 (delivery orchestrator, analytics, operability) is next on the [roadmap](docs/roadmap.md). **Track the work:** [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) · [milestones](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestones).
+> **Status:** **Release 1 (greenfield) complete**, tagged [`v1.0.0`](docs/releases/v1.0.0.md). [Spec 0001](docs/specs/0001-v1-core.md) is implemented: the JSON API (create, Redirect, URL Rules, Collision handling) and the web page (works with or without JavaScript; Lighthouse 100 in every category). **Release 2 is in progress:** the delivery orchestrator (R18, [spec 0002](docs/specs/0002-delivery-orchestrator.md)) and the Clickstream (R10, [spec 0003](docs/specs/0003-clickstream.md), [ADR 0021](docs/adr/0021-sqlite-wal-busy-timeout-and-small-connection-pool.md)) are done; analytics and operability follow on the [roadmap](docs/roadmap.md). Releases 2 and 3 are designed (ADRs 0007–0021). **Track the work:** [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) · [milestones](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestones).
 
 ## Reviewer's guide: start here
 
@@ -15,15 +15,15 @@ This README is the map. Every question a reviewer or a new engineer usually asks
 | If you want to… | Read |
 |---|---|
 | See the system in one picture | [Two planes: the product and how it is delivered](#two-planes-the-product-and-how-it-is-delivered) (below) |
-| Know what the product does today | [The product](#the-product) · [Spec 0001: v1 core](docs/specs/0001-v1-core.md) |
-| Learn the vocabulary (Link, Short Code, Rule, Redirect, Click) | [`CONTEXT.md`](CONTEXT.md) |
-| Follow a request through the code | [`docs/architecture.md`](docs/architecture.md): sequence diagrams for create and Redirect |
+| Know what the product does today | [The product](#the-product) · [Spec 0001: v1 core](docs/specs/0001-v1-core.md) · [Spec 0003: Clickstream](docs/specs/0003-clickstream.md) |
+| Learn the vocabulary (Link, Short Code, Rule, Redirect, Click, Click Recorder, Referrer Host, Agent Category, Device Class) | [`CONTEXT.md`](CONTEXT.md) |
+| Follow a request through the code | [`docs/architecture.md`](docs/architecture.md): sequence diagrams for create and Redirect, the Click flow, and SQLite's WAL and pool settings ([ADR 0021](docs/adr/0021-sqlite-wal-busy-timeout-and-small-connection-pool.md)) |
 | Understand *why* it is built this way | [Decisions (ADRs)](#decisions) below · [`docs/adr/`](docs/adr/) |
 | Understand the delivery orchestrator | [The delivery orchestrator](#the-delivery-orchestrator) below · [`orchestrator/README.md`](orchestrator/README.md) · ADRs [0007](docs/adr/0007-delivery-orchestrator.md)–[0011](docs/adr/0011-orchestrator-replanning-and-lineage.md) |
 | See what each Release delivered | [Release notes](docs/releases/) · [`CHANGELOG.md`](CHANGELOG.md) |
 | See what's planned, deferred, and why | [`docs/roadmap.md`](docs/roadmap.md): releases, ordering and a re-prioritisation log |
 | Trace a feature from requirement to code | [Specs](docs/specs/) → [Issues](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues?q=is%3Aissue) → [pull requests](https://github.com/SanjuktaDavuluri/simple-url-shortener/pulls?q=is%3Apr) → commits. Each PR says `Closes #n` |
-| See how it is tested | [Integration-testing plan](docs/plans/0001-integration-testing.md) · `src/test/` · [browser checks](e2e/README.md) · [CI workflow](.github/workflows/ci.yml) |
+| See how it is tested | [Integration-testing plan](docs/plans/0001-integration-testing.md) (traceability matrix, [spec 0003 coverage](docs/plans/0001-integration-testing.md#spec-0003-coverage)) · `src/test/` · [browser checks](e2e/README.md) · [CI workflow](.github/workflows/ci.yml) |
 | Run it or contribute | [Quick start](#quick-start) below · [onboarding guide](docs/onboarding.md) |
 | See the working rules the team (and Claude Code) follow | [`CLAUDE.md`](CLAUDE.md): project charter |
 
@@ -72,15 +72,17 @@ flowchart LR
 - **URL Rules:** only `http`/`https` addresses with a host, at most 2048 characters, and never a link back to the shortener itself. Each refusal comes with a clear Rejection Reason (`422`).
 - **Web page:** a single server-rendered page with no full page reloads, copy-to-clipboard, and light and dark mode. It works with JavaScript off.
 
-### In progress (Release 2, [spec 0003](docs/specs/0003-clickstream.md))
+### Done in Release 2, to be tagged at its close-out (roadmap R10, [spec 0003](docs/specs/0003-clickstream.md))
 
 - **Clicks recorded:** every successful `GET` Redirect records one Click (Short Code, time, Referrer Host, Agent Category, Device Class) in a `clicks` table. Clicks are queued and saved in batches by a background writer, so the Redirect never waits for the database. The `302` is sent before the Click is handed over, and a failure while handing it over costs only that Click (logged as a warning), never the Redirect; a Redirect also completes while a Click batch holds SQLite's write lock. Loss is bounded and counted, never an error ([ADR 0012](docs/adr/0012-clicks-recorded-asynchronously.md)): a full queue drops new Clicks, and a batch that fails to save is dropped whole, with no retry. Drops are logged as a single warning carrying only the count, at most once per flush interval (any held back are logged when the writer stops), and the writer logs its start and stop. On a normal shutdown the writer stops after the web server, so Redirects served while shutting down are still recorded, and it saves the queued Clicks within `CLICK_SHUTDOWN_TIMEOUT`; any it cannot save in time are dropped and counted. The full `Referer` and the raw `User-Agent` are never stored ([ADR 0013](docs/adr/0013-clicks-store-minimal-non-personal-data.md)). A `404`, a `HEAD` request and Link creation record nothing. There is no way to read Clicks over HTTP yet: the stats API comes with R2.
+
+How it works: the [Redirect and Click flows](docs/architecture.md#the-click-flow-clickstream) and [SQLite concurrency](docs/architecture.md#sqlite-concurrency-adr-0021) in the architecture, the [glossary](CONTEXT.md) terms *Click Recorder*, *Referrer Host*, *Agent Category* and *Device Class*, the settings and code tour in [onboarding](docs/onboarding.md), the test evidence in [plan 0001](docs/plans/0001-integration-testing.md#spec-0003-coverage), and the [roadmap](docs/roadmap.md) (R10: done, with its PRs).
 
 ### Planned ([roadmap](docs/roadmap.md))
 
 | Release | Feature | Decided in |
 |---|---|---|
-| 2 | Click analytics: Clicks recorded off the Redirect path; per-Link stats visible only to the Link's creator | ADRs [0012](docs/adr/0012-clicks-recorded-asynchronously.md), [0013](docs/adr/0013-clicks-store-minimal-non-personal-data.md), [0014](docs/adr/0014-creator-only-stats-via-manage-token.md) |
+| 2 | Click analytics: per-Link stats visible only to the Link's creator, read from the Clicks recorded since R10 | ADRs [0012](docs/adr/0012-clicks-recorded-asynchronously.md), [0013](docs/adr/0013-clicks-store-minimal-non-personal-data.md), [0014](docs/adr/0014-creator-only-stats-via-manage-token.md) |
 | 2 | Operability: health checks, metrics, structured logs; container image; OpenAPI contract | [ADR 0015](docs/adr/0015-observability-actuator-micrometer-structured-logs.md) · roadmap R11, R21 |
 | 3 | Hardening: rate limits, strict security headers, blocking private and internal addresses | ADRs [0016](docs/adr/0016-in-app-rate-limiting-per-client-ip.md), [0017](docs/adr/0017-strict-content-security-policy-and-security-headers.md), [0018](docs/adr/0018-private-address-rule-without-dns.md) |
 | 3 | Reliability evidence: load-test baseline against SLOs, failure-mode testing, scaling path | [ADR 0019](docs/adr/0019-staged-evidence-triggered-scaling-path.md) · roadmap R13, R14 |
@@ -127,6 +129,7 @@ Every significant decision is an ADR that lists the options weighed and why one 
 | [0018](docs/adr/0018-private-address-rule-without-dns.md) | Private-address Rule, checked as written, with no DNS lookup | Security |
 | [0019](docs/adr/0019-staged-evidence-triggered-scaling-path.md) | Staged scaling path, each stage triggered by measurements | Scalability |
 | [0020](docs/adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md) | Parallel Lanes: fan-out in the graph, waits held at the join | Delivery |
+| [0021](docs/adr/0021-sqlite-wal-busy-timeout-and-small-connection-pool.md) | SQLite in WAL mode with a busy timeout and a pool of 4, so Redirects never wait behind Click writes | Storage |
 
 ## Quick start
 
@@ -186,7 +189,7 @@ CONTEXT.md · CLAUDE.md       domain glossary · project charter
 | Domain glossary | [`CONTEXT.md`](CONTEXT.md) | One shared vocabulary for code, tickets and docs |
 | Architecture Decision Records | [`docs/adr/`](docs/adr/) | Significant decisions only, each with the options weighed and why one won |
 | Roadmap | [`docs/roadmap.md`](docs/roadmap.md) | Every deferred item, prioritised into releases and tracked to completion |
-| Architecture | [`docs/architecture.md`](docs/architecture.md) | The two planes and request flows (Mermaid) |
+| Architecture | [`docs/architecture.md`](docs/architecture.md) | The two planes, request flows, the Click flow and SQLite concurrency (Mermaid) |
 | Onboarding | [`docs/onboarding.md`](docs/onboarding.md) | Setup, repo tour and how work flows, for a new engineer or reviewer |
 | Specs | [`docs/specs/`](docs/specs/) | Numbered requirements with a status lifecycle; each traces to a roadmap item |
 | Tickets | GitHub Issues, on the [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) and grouped by [milestone](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestones) per release | Vertical-slice tickets; every change traces to one |
