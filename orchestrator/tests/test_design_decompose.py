@@ -127,10 +127,8 @@ def test_no_adr_is_a_valid_outcome_recorded_with_its_reason(
     approved_spec()
 
     [passed] = [e for e in of_type(repo, "stage_passed") if e["stage"] == "design"]
-    assert passed["data"] == {
-        "artifacts": {"adrs": []},
-        "no_adr_reason": "Follows ADR 0002; nothing new.",
-    }
+    assert passed["data"]["artifacts"] == {"adrs": []}
+    assert passed["data"]["no_adr_reason"] == "Follows ADR 0002; nothing new."
     assert any("No ADR" in c.body and "nothing new" in c.body for c in github.comments(42))
     assert agent.requests[-1].stage == "decompose"
 

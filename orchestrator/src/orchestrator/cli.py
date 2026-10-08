@@ -54,13 +54,19 @@ def _parser() -> argparse.ArgumentParser:
     stop.add_argument("run")
     approve = commands.add_parser("approve", help="approve an Approval Checkpoint")
     approve.add_argument("run")
-    approve.add_argument("checkpoint", help="spec, adr-NNNN, tickets or dependency:<lane>")
+    approve.add_argument(
+        "checkpoint", help="spec, adr-NNNN, tickets, dependency:<lane> or amendment-N"
+    )
     reject = commands.add_parser("reject", help="reject an Approval Checkpoint, with a reason")
     reject.add_argument("run")
     reject.add_argument(
         "checkpoint", help="as for approve, or lane:<key> to roll a paused Lane back"
     )
     reject.add_argument("--reason", required=True)
+    replan = commands.add_parser(
+        "replan", help="check a Run's approved inputs for changes, and re-plan what depends on them"
+    )
+    replan.add_argument("run")
     check = commands.add_parser("verify", help="check that Event Logs are intact")
     target = check.add_mutually_exclusive_group(required=True)
     target.add_argument("run", nargs="?", help="a Run ID such as R-0001")
@@ -91,8 +97,15 @@ def _context(deps: Deps, workspace: Workspace, run: str) -> RunContext:
 
 def _stage_states(log: list[dict[str, Any]]) -> dict[str, str]:
     states = dict.fromkeys(STAGES, "pending")
-    transitions = {"stage_started": "running", "stage_passed": "passed", "stage_failed": "failed"}
+    transitions = {
+        "stage_started": "running",
+        "stage_passed": "passed",
+        "stage_failed": "failed",
+        "invalidated": "invalidated",
+    }
     for event in log:
+        if event["type"] == "invalidated" and "lane" in event["data"]:
+            continue  # one Lane redone; the Stage itself carries on
         if event["stage"] in states and event["type"] in transitions:
             states[event["stage"]] = transitions[event["type"]]
     return states
@@ -110,7 +123,7 @@ def _open_approvals(log: list[dict[str, Any]]) -> list[str]:
     for e in log:
         if e["type"] == "approval_requested":
             waiting[e["data"]["checkpoint"]] = True
-        elif e["type"] in ("approved", "rejected"):
+        elif e["type"] in ("approved", "rejected", "approval_withdrawn"):
             waiting[e["data"]["checkpoint"]] = False
     return [checkpoint for checkpoint, open_ in waiting.items() if open_]
 
@@ -120,6 +133,8 @@ def _waiting_checks(log: list[dict[str, Any]]) -> list[int]:
     for e in log:
         if e["type"] in ("pr_opened", "pr_updated", "checks_passed", "checks_failed"):
             last[e["data"]["pr"]] = e["type"]
+        elif e["type"] == "approval_withdrawn" and e["data"]["checkpoint"].startswith("merge:"):
+            last[int(e["data"]["checkpoint"].removeprefix("merge:"))] = "closed"
     return [pr for pr, t in last.items() if t in ("pr_opened", "pr_updated")]
 
 
@@ -273,6 +288,25 @@ def _resume(deps: Deps, workspace: Workspace, args: argparse.Namespace) -> int:
     return 0
 
 
+def _replan(deps: Deps, workspace: Workspace, run: str) -> int:
+    ctx = _context(deps, workspace, run)
+    state = _run_state(ctx.log.read())
+    if state == "finished":
+        print(f"{run} is finished; a finished Run is never re-planned")
+        _print_run(workspace, run)
+        return 0
+    if state == "stopped":
+        print(f"{run} is stopped; resume it first with `orchestrate resume {run}`", file=sys.stderr)
+        return REFUSED
+    changes = graph.detect(ctx)
+    if not changes:
+        print("No inputs changed since they were recorded")
+    else:
+        graph.replan(ctx, changes)
+    _print_run(workspace, run)
+    return 0
+
+
 def _stop(deps: Deps, workspace: Workspace, run: str) -> int:
     lock = workspace.lock(run)
     ctx = _context(deps, workspace, run)
@@ -402,6 +436,8 @@ def main(argv: Sequence[str] | None = None, *, deps: Deps | None = None) -> int:
         return _resume(deps, workspace, args)
     if args.command == "stop":
         return _stop(deps, workspace, args.run)
+    if args.command == "replan":
+        return _replan(deps, workspace, args.run)
     return _decide(deps, workspace, args)
 
 

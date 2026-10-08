@@ -8,16 +8,19 @@ parallel branches (`lane_work`); each runs to its next wait and returns to the j
 merges, approvals and paused Lanes are held after the join, one interrupt at a time.
 """
 
+import threading
 from collections.abc import Callable
 from typing import Any, Literal
 
 from langgraph.types import Send, interrupt
 
+from orchestrator import lineage
 from orchestrator.agent import StepRequest
 from orchestrator.approvals import gate_failed, record_gate, review_step
 from orchestrator.commands import run, with_temporary_instance
 from orchestrator.context import RunContext, RunPaused, RunStopped, marker
 from orchestrator.gitops import (
+    bring_in,
     changed_since_main,
     commit_all,
     lane_branch,
@@ -27,6 +30,7 @@ from orchestrator.gitops import (
     worktree,
 )
 from orchestrator.hashing import content_hash
+from orchestrator.stages import roadmap_release
 from orchestrator.state import RunState
 
 STAGE = "lanes"
@@ -34,17 +38,30 @@ PREFIX = {"Feature": "feat", "Fix": "fix", "Test": "test", "Docs": "docs"}
 
 IMPLEMENT = """\
 Implement ticket #{issue} test-first: write a failing test at the agreed seam, make it pass, repeat.
-Only what the acceptance criteria need. Use the vocabulary in CONTEXT.md and respect the ADRs."""
+Only what the acceptance criteria need. Use the vocabulary in CONTEXT.md and respect the ADRs.
+Never edit the spec. If it has a gap you can't implement around, output spec_amendment: {{text
+(the whole amended spec), reason}} instead, and the amendment goes to the engineer for approval."""
 DOCUMENT = """\
-Update the documents ticket #{issue} touched: the spec's status, the integration-testing plan's
-matrix, and the README where behaviour changed. Output docs_updated (paths), or none needed."""
+Update the documents ticket #{issue} touched: the integration-testing plan's matrix and the README
+where behaviour changed. Never edit the spec: close-out marks it implemented. Output docs_updated
+(paths), or none needed."""
 
 Lane = dict[str, Any]
+_amendments = threading.Lock()  # Lanes run in parallel; amendments are numbered one at a time
 PrOf = Callable[[RunState], int]
 
 # A Lane's status. In flight from its start until it merges or is rolled back (ADR 0020).
-IN_FLIGHT = ("working", "paused", "dependency", "awaiting_checks", "awaiting_merge", "rolling_back")
-FINISHED = ("merged", "rolled_back", "skipped")
+IN_FLIGHT = (
+    "working",
+    "paused",
+    "dependency",
+    "amendment",
+    "awaiting_amendment",
+    "awaiting_checks",
+    "awaiting_merge",
+    "rolling_back",
+)
+FINISHED = ("merged", "rolled_back", "skipped", "removed")
 # The Stage each phase of a working Lane belongs to
 PHASE_STAGE = {"implement": "implement", "verify": "implement", "document": "document", "pr": "pr"}
 
@@ -65,16 +82,64 @@ def lane_tree(ctx: RunContext, current: Lane) -> Any:
 # The Run's documents reach main first
 
 
+def new_lane(ticket: dict[str, Any], issue: int) -> Lane:
+    return {
+        "key": ticket["key"],
+        "issue": issue,
+        "title": ticket["title"],
+        "kind": ticket["kind"],
+        "what": ticket["what"],
+        "acceptance": ticket["acceptance"],
+        "branch": lane_branch(issue, ticket["title"]),
+        "blocked_by": list(ticket.get("blocked_by", [])),
+        "ticket_hash": lineage.ticket_hash(ticket),
+        "status": "pending",
+        "phase": None,
+        "attempts": 0,
+        "feedback": None,
+        "pr": None,
+        "sha": None,
+        "dependency_change": None,
+        "dependency_approved": None,
+        "amendment": None,
+        "paused_stage": None,
+        "rollback": None,
+    }
+
+
 class Begin:
-    """Starts the Lanes Stage by sending the Run's documents to main through a PR."""
+    """Starts the Lanes Stage: the Run's documents go to main through a PR (when main doesn't have
+    them yet), and the Lanes are set up from the approved tickets. After a Re-plan, existing Lanes
+    are reconciled with the new breakdown instead (ADR 0011)."""
 
     def __init__(self, ctx: RunContext) -> None:
         self.ctx = ctx
 
     def __call__(self, state: RunState) -> RunState:
         ctx = self.ctx
-        ctx.event("stage_started", STAGE)
-        spec = state["spec"]
+        tree = ctx.workspace.worktrees / ctx.run
+        sha = push(tree, run_branch(ctx.run))
+        pr = self.docs_pr(state, sha) if changed_since_main(tree) else None
+        at = "origin/main" if pr is None else f"origin/{run_branch(ctx.run)}"
+        inputs = lineage.record(ctx, state, STAGE, at)
+        ctx.event("stage_started", STAGE, {"inputs": inputs})
+        lanes = (
+            self.reconcile(state)
+            if state.get("lanes")
+            else [new_lane(t, state["published"][t["key"]]) for t in state["tickets"]]
+        )
+        update: RunState = {
+            "lanes": lanes,
+            "docs_pr": pr or state.get("docs_pr", 0),
+            "docs_sha": sha,
+            "docs_merged": pr is None,
+            "docs_prs": [*state.get("docs_prs", []), *([pr] if pr else [])],
+            "lineage": {**state.get("lineage", {}), STAGE: inputs},
+        }
+        return update
+
+    def docs_pr(self, state: RunState, sha: str) -> int:
+        ctx, spec = self.ctx, state["spec"]
         body = (
             f"Spec, ADRs and the ticket breakdown for #{ctx.issue}, from Run {ctx.run}.\n\n"
             f"- Spec: `{spec['path']}`\n"
@@ -82,7 +147,6 @@ class Begin:
             + f"- Tickets: {', '.join(f'#{n}' for n in state['published'].values())}\n\n"
             "Each was approved at its Approval Checkpoint; merging this PR lets the Lanes start."
         )
-        sha = push(ctx.workspace.worktrees / ctx.run, run_branch(ctx.run))
         pr = ctx.github.create_pr(
             run_branch(ctx.run),
             "main",
@@ -91,30 +155,72 @@ class Begin:
         )
         ctx.event("pr_opened", STAGE, {"lane": "docs", "pr": pr, "sha": sha})
         ctx.mirror(f"Stage **lanes** started. First, the Run's documents go to main: PR #{pr}.")
-        lanes = [
-            {
-                "key": t["key"],
-                "issue": state["published"][t["key"]],
-                "title": t["title"],
-                "kind": t["kind"],
-                "what": t["what"],
-                "acceptance": t["acceptance"],
-                "branch": lane_branch(state["published"][t["key"]], t["title"]),
-                "blocked_by": list(t.get("blocked_by", [])),
-                "status": "pending",
-                "phase": None,
-                "attempts": 0,
-                "feedback": None,
-                "pr": None,
-                "sha": None,
-                "dependency_change": None,
-                "dependency_approved": None,
-                "paused_stage": None,
-                "rollback": None,
-            }
-            for t in state["tickets"]
-        ]
-        return {"docs_pr": pr, "docs_sha": sha, "lanes": lanes}
+        return pr
+
+    def reconcile(self, state: RunState) -> list[Lane]:
+        """Keep Lanes whose ticket is unchanged, redo unmerged Lanes whose ticket changed, follow up
+        merged ones with a new ticket (merged work is never rewritten), and add new tickets."""
+        ctx = self.ctx
+        old = {ln["key"]: ln for ln in state["lanes"]}
+        lanes: list[Lane] = []
+        for t in state["tickets"]:
+            current = old.pop(t["key"], None)
+            if current is None:
+                lanes.append(new_lane(t, state["published"][t["key"]]))
+            elif current["ticket_hash"] == lineage.ticket_hash(t):
+                lanes.append(current)
+            elif current["status"] == "merged":
+                lanes += [current, self.follow_up(state, current, t)]
+            else:
+                if current["status"] != "pending":
+                    discard(ctx, current)
+                    invalidated(ctx, current, "its ticket changed")
+                lanes.append(new_lane(t, current["issue"]))
+        for current in old.values():
+            if current["status"] in FINISHED:
+                lanes.append(current)
+                continue
+            discard(ctx, current)
+            invalidated(ctx, current, "its ticket was removed")
+            lanes.append({**current, "status": "removed"})
+        return lanes
+
+    def follow_up(self, state: RunState, merged: Lane, ticket: dict[str, Any]) -> Lane:
+        ctx = self.ctx
+        n = 1 + sum(1 for ln in state["lanes"] if ln["key"].startswith(f"{merged['key']}-f"))
+        key = f"{merged['key']}-f{n}"
+        title = f"Follow-up to #{merged['issue']}: {ticket['title']}"
+        body = (
+            f"Follows #{merged['issue']} (merged in PR #{merged['pr']}), whose ticket changed in a "
+            f"re-plan of Run {ctx.run} (Issue #{ctx.issue}). Merged work is never rewritten.\n\n"
+            f"## What to build\n\n{ticket['what']}\n\n## Acceptance criteria\n\n"
+            + "\n".join(f"- [ ] {a}" for a in ticket["acceptance"])
+            + "\n"
+        )
+        release = roadmap_release(ctx.workspace, state.get("roadmap_item"))
+        milestone = ctx.github.milestone_for_release(release) if release else None
+        issue = ctx.github.create_issue(title, body, ("ready-for-agent",), milestone)
+        release_field = {"Release": release} if release else {}
+        ctx.github.add_to_board(issue, {"Status": "Todo", **release_field, "Kind": ticket["kind"]})
+        ctx.event(
+            "follow_up_created", STAGE, {"key": key, "issue": issue, "follows": merged["issue"]}
+        )
+        ctx.mirror(f"Follow-up #{issue} opened for merged #{merged['issue']}: its ticket changed.")
+        return new_lane({**ticket, "key": key, "title": title}, issue)
+
+
+def discard(ctx: RunContext, current: Lane) -> None:
+    """Close a Lane's open PR (withdrawing its merge approval); delete its branch and worktree."""
+    pr = current["pr"]
+    if pr is not None and ctx.github.pr(pr).state == "open":
+        ctx.github.close_pr(pr)
+        ctx.event("approval_withdrawn", STAGE, {"checkpoint": f"merge:{pr}"})
+    remove_lane(ctx.workspace, f"{ctx.run}-{current['issue']}", current["branch"])
+
+
+def invalidated(ctx: RunContext, current: Lane, reason: str) -> None:
+    ctx.event("invalidated", STAGE, {"stage": STAGE, "lane": current["key"], "reason": reason})
+    ctx.mirror(f"Lane **{current['key']}** is redone: {reason}.")
 
 
 def checks_outcome(ctx: RunContext, pr: int, sha: str) -> tuple[str, str]:
@@ -206,7 +312,7 @@ class AwaitMerge:
         if outcome is None:
             interrupt({"kind": "merge", "pr": pr})
             return {"merge": "recheck"}
-        return {"merge": outcome}
+        return {"merge": outcome, "docs_merged": outcome == "merged"}
 
 
 class DocsChecksFailed:
@@ -257,6 +363,8 @@ class Schedule:
                 lanes[key] = current = self.checks(current)
             if current["status"] == "awaiting_merge":
                 lanes[key] = self.merge(current)
+            if current["status"] == "awaiting_amendment":
+                lanes[key] = self.amendment(current)
         self.skip(lanes)
         self.start(lanes)
         return {"lanes": list(lanes.values())}
@@ -287,6 +395,24 @@ class Schedule:
             reason = f"PR #{pr} was closed without merging"
             return {**current, "status": "rolling_back", "rollback": {"reason": reason, "by": None}}
         return current
+
+    def amendment(self, current: Lane) -> Lane:
+        """A merged amendment reached main (a Re-plan has run, if it changed anything): the Lane
+        continues on the amended spec. A closed one sends it back to implement."""
+        ctx, amendment = self.ctx, current["amendment"]
+        pr = ctx.github.pr(amendment["pr"])
+        if pr.state == "open":
+            return current
+        if pr.state == "merged":
+            bring_in(
+                lane_tree(ctx, current),
+                "origin/main",
+                f"chore: bring spec amendment {amendment['n']} from main (#{current['issue']})",
+            )
+            feedback = f"Spec amendment {amendment['n']} merged; continue on the amended spec."
+        else:
+            feedback = f"Spec amendment {amendment['n']}'s PR #{pr.number} was closed unmerged."
+        return {**current, "status": "working", "phase": "implement", "feedback": feedback}
 
     def skip(self, lanes: dict[str, Lane]) -> None:
         """Skip every pending Lane blocked by a Lane that will not merge, transitively."""
@@ -337,6 +463,8 @@ def after_schedule(state: RunState) -> list[Send] | str:
         return "lane_paused"
     if with_status(state, "dependency"):
         return "dependency_request_approval"
+    if with_status(state, "amendment"):
+        return "amendment_request_approval"
     if all(ln["status"] in FINISHED for ln in state["lanes"]):
         return "lanes_done"
     return "lanes_wait"
@@ -377,7 +505,7 @@ class LaneWork:
     def implement(self, state: RunState, current: Lane) -> Lane:
         ctx = self.ctx
         tree = lane_tree(ctx, current)
-        ctx.call_agent(
+        result = ctx.call_agent(
             StepRequest(
                 run=ctx.run,
                 stage="implement",
@@ -394,6 +522,8 @@ class LaneWork:
                 budget_usd=ctx.settings.cost_cap_step_usd,
             )
         )
+        if "spec_amendment" in result.output:
+            return self.amend(state, current, result.output["spec_amendment"])
         problems, _ = review_step(ctx, "implement", tree, dependencies_allowed=True)
         if problems:
             record_gate(ctx, "implement", "policy", problems)
@@ -410,6 +540,29 @@ class LaneWork:
                 change = {"manifests": manifests, "hash": digest}
                 return {**current, "status": "dependency", "dependency_change": change}
         return {**current, "phase": "verify", "feedback": None}
+
+    def amend(self, state: RunState, current: Lane, amendment: dict[str, Any]) -> Lane:
+        """The agent found a gap in the spec: the amended spec goes on its own branch from main,
+        and the Lane waits for its approval. Nothing approved changes yet (ADR 0011)."""
+        ctx, path = self.ctx, state["spec"]["path"]
+        with _amendments:
+            n = 1 + len([e for e in ctx.log.read() if e["type"] == "amendment_raised"])
+            branch = f"{run_branch(ctx.run)}-amendment-{n}"
+            tree = worktree(ctx.workspace, f"{ctx.run}-amendment-{n}", branch)
+            text = str(amendment["text"])
+            (tree / path).write_text(text)
+            commit_all(tree, f"docs: spec amendment {n} for #{ctx.issue} ({ctx.run})")
+            push(tree, branch)
+            record = {
+                "n": n,
+                "branch": branch,
+                "path": path,
+                "hash": content_hash(text),
+                "reason": str(amendment.get("reason", "")),
+                "pr": None,
+            }
+            ctx.event("amendment_raised", "implement", {"lane": current["key"], **record})
+        return {**current, "status": "amendment", "amendment": record}
 
     def verify(self, state: RunState, current: Lane) -> Lane:
         """The implement Exit Gate: the verify command, plus browser checks on a temporary
@@ -499,6 +652,9 @@ class LanesWait:
             {"lane": ln["key"], "pr": ln["pr"], "for": ln["status"].removeprefix("awaiting_")}
             for ln in state["lanes"]
             if ln["status"] in ("awaiting_checks", "awaiting_merge")
+        ] + [
+            {"lane": ln["key"], "pr": ln["amendment"]["pr"], "for": "amendment"}
+            for ln in with_status(state, "awaiting_amendment")
         ]
         interrupt({"kind": "lanes", "waits": waits})
         return {}
@@ -581,6 +737,56 @@ class DependencyDecided:
         return {"lanes": [{**current, "phase": "verify", "dependency_approved": approved}]}
 
 
+def amendment_lane(state: RunState) -> Lane:
+    return with_status(state, "amendment")[0]
+
+
+def describe_amendment(state: RunState) -> tuple[str, str, str, str]:
+    current = amendment_lane(state)
+    a = current["amendment"]
+    return (
+        f"amendment-{a['n']}",
+        a["path"],
+        a["hash"],
+        f"\n\nLane {current['key']} found a gap in the spec: {a['reason']}\n\nApproving opens a PR "
+        "to main; merging it re-plans the Run from the spec.",
+    )
+
+
+def amendment_location(state: RunState) -> tuple[str, str, list[str]]:
+    a = amendment_lane(state)["amendment"]
+    return a["branch"], f"{state['run']}-amendment-{a['n']}", [a["path"]]
+
+
+class AmendmentDecided:
+    """Approved: the amendment goes to main as a PR. Rejected: the Lane goes back to implement."""
+
+    def __init__(self, ctx: RunContext) -> None:
+        self.ctx = ctx
+
+    def __call__(self, state: RunState) -> RunState:
+        ctx, decision, current = self.ctx, state["decision"], amendment_lane(state)
+        a = current["amendment"]
+        if not decision["approved"]:
+            remove_lane(ctx.workspace, f"{ctx.run}-amendment-{a['n']}", a["branch"])
+            feedback = f"{decision['checkpoint']} rejected: {decision['reason']}"
+            working = {"status": "working", "phase": "implement", "attempts": 0}
+            return {"lanes": [{**current, **working, "feedback": feedback, "amendment": None}]}
+        pr = ctx.github.create_pr(
+            a["branch"],
+            "main",
+            f"docs: spec amendment {a['n']} for #{ctx.issue} ({ctx.run})",
+            f"Lane {current['key']} (#{current['issue']}) of Run {ctx.run} found a gap in the "
+            f"spec: {a['reason']}\n\nApproved as `amendment-{a['n']}` (hash `{a['hash'][:12]}`). "
+            "Merging this PR changes the spec on main, and the Run re-plans from it.",
+        )
+        ctx.event("amendment_pr_opened", "implement", {"lane": current["key"], "pr": pr})
+        ctx.mirror(f"Spec amendment {a['n']}: PR #{pr}. Merge it on GitHub to re-plan the Run.")
+        return {
+            "lanes": [{**current, "status": "awaiting_amendment", "amendment": {**a, "pr": pr}}]
+        }
+
+
 class Rollback:
     """Undo a Lane: close its PR, delete its branch and worktree, return its ticket to Ready."""
 
@@ -594,9 +800,7 @@ class Rollback:
         ctx = self.ctx
         reason, by = current["rollback"]["reason"], current["rollback"]["by"]
         pr = current["pr"]
-        if pr is not None and ctx.github.pr(pr).state == "open":
-            ctx.github.close_pr(pr)
-        remove_lane(ctx.workspace, f"{ctx.run}-{current['issue']}", current["branch"])
+        discard(ctx, current)
         ctx.github.add_to_board(current["issue"], {"Status": "Todo"})
         ctx.github.add_comment(
             current["issue"],
@@ -638,6 +842,10 @@ def docs_pr(state: RunState) -> int:
 
 def docs_sha(state: RunState) -> str:
     return state["docs_sha"]
+
+
+def after_begin(state: RunState) -> Literal["docs_checks", "schedule"]:
+    return "schedule" if state.get("docs_merged") else "docs_checks"
 
 
 def after_docs_checks(state: RunState) -> Literal["recheck", "request_merge", "stop"]:

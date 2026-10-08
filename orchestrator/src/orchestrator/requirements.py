@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from langgraph.types import interrupt
 
+from orchestrator import lineage
 from orchestrator.agent import StepRequest
 from orchestrator.approvals import gate_failed, record_gate, review_step
 from orchestrator.context import RunContext
@@ -114,7 +115,9 @@ class Gate:
         problems = check_spec(
             path,
             text,
-            exists_on_main=exists_on_main(ctx.workspace, path),
+            # a re-plan revises the Run's own spec, which may already be on main
+            exists_on_main=exists_on_main(ctx.workspace, path)
+            and path != state.get("spec", {}).get("path"),
             roadmap_item=state.get("roadmap_item"),
         )
         problems += review_step(ctx, STAGE, worktree)[0]
@@ -139,8 +142,8 @@ class Decided:
         if not decision["approved"]:
             return {"feedback": decision["reason"], "attempts": 0}
         spec = {"path": state["spec_path"], "hash": state["spec_hash"]}
-        self.ctx.event("stage_passed", STAGE, {"artifacts": {"spec": spec}})
-        return {"spec": spec, "feedback": None}
+        updated = lineage.passed(self.ctx, state, STAGE, {"artifacts": {"spec": spec}})
+        return {"spec": spec, "feedback": None, "lineage": updated}
 
 
 def after_draft(state: RunState) -> Literal["await_answer", "gate"]:

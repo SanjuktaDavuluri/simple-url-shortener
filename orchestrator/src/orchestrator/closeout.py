@@ -25,7 +25,11 @@ class ReleaseReadiness:
         ctx.event("stage_started", "release_readiness")
         problems: list[str] = []
         merged = [ln for ln in state["lanes"] if ln["status"] == "merged"]
-        prs = [(state["docs_pr"], ctx.issue, None), *((ln["pr"], ln["issue"], ln) for ln in merged)]
+        docs = state.get("docs_prs", [state["docs_pr"]])
+        prs = [
+            *((n, ctx.issue, None) for n in docs),
+            *((ln["pr"], ln["issue"], ln) for ln in merged),
+        ]
         for number, issue, current in prs:
             pr = ctx.github.pr(number)
             if pr.state != "merged":

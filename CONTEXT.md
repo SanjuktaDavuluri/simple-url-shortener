@@ -94,6 +94,14 @@ _Avoid_: Abort, kill, cancel
 Redoing only the Stages whose recorded inputs have changed since they ran, and everything downstream of them.
 _Avoid_: Restart, rerun
 
+**Spec amendment**:
+A change to an approved spec proposed by an agent that found a gap in it. It is approved like any artifact and reaches main through a PR; agents never edit the spec themselves.
+_Avoid_: Spec edit, patch
+
+**Follow-up ticket**:
+A new ticket for a change to work that has already merged, so that merged history is never rewritten.
+_Avoid_: Reopen, rework
+
 **Event Log**:
 The append-only, hash-chained record of everything that happened in a Run. It is the system of record; the Issue comments are a readable mirror of it.
 _Avoid_: History, audit (on its own), log (on its own)

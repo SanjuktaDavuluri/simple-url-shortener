@@ -7,10 +7,11 @@ tickets are published as Issues on the Release's milestone and the delivery boar
 import json
 from typing import Any, Literal
 
+from orchestrator import lineage
 from orchestrator.agent import StepRequest
 from orchestrator.approvals import gate_failed, record_gate, review_step
 from orchestrator.context import RunContext
-from orchestrator.gitops import commit_and_push, ensure_run_worktree, run_branch
+from orchestrator.gitops import commit_and_push, ensure_run_worktree, run_branch, tickets_path
 from orchestrator.hashing import content_hash
 from orchestrator.stages import roadmap_release
 from orchestrator.state import RunState
@@ -61,10 +62,6 @@ def order(tickets: list[Ticket]) -> tuple[list[Ticket], list[str]]:
         for blockers in remaining.values():
             blockers.difference_update(ready)
     return ordered, []
-
-
-def tickets_path(run: str) -> str:
-    return f"delivery/runs/{run}/tickets.json"
 
 
 class Begin:
@@ -191,8 +188,8 @@ class Publish:
             }
             for t in state["tickets"]
         ]
-        ctx.event("stage_passed", STAGE, {"artifacts": {"tickets": artifacts}})
-        return {"published": issues}
+        updated = lineage.passed(ctx, state, STAGE, {"artifacts": {"tickets": artifacts}})
+        return {"published": issues, "lineage": updated}
 
 
 def after_gate(state: RunState) -> Literal["request_approval", "draft", "stop"]:

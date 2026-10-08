@@ -3,7 +3,7 @@
 The **delivery plane** of this repository: a development-time command-line tool that drives a GitHub Issue through gated Stages to merge-ready pull requests, under human control. It never deploys, and it never connects to a running service (ADR 0007).
 
 - **Spec:** [0002](../docs/specs/0002-delivery-orchestrator.md) · **Decisions:** ADRs [0007](../docs/adr/0007-delivery-orchestrator.md)–[0011](../docs/adr/0011-orchestrator-replanning-and-lineage.md) and [0020](../docs/adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md) · **Vocabulary:** the Delivery section of [`CONTEXT.md`](../CONTEXT.md)
-- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28), **lanes → release readiness → close-out** (#29), **policy guardrails** (#32), **failure handling**: retries, pause and resume, Rollback, Safe-stop and cost caps (#31), and **parallel Lanes** joined before release readiness (#30). Re-plan, metrics and the real agent arrive with #33–#35 (Release 2).
+- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28), **lanes → release readiness → close-out** (#29), **policy guardrails** (#32), **failure handling**: retries, pause and resume, Rollback, Safe-stop and cost caps (#31), **parallel Lanes** joined before release readiness (#30), and **Re-plan** with content-hash lineage, follow-up tickets and spec amendments (#33). Metrics and the real agent arrive with #34–#35 (Release 2).
 
 ## Setup
 
@@ -25,7 +25,8 @@ Run it from anywhere inside the repository; it finds the repository root with gi
 | `orchestrate status [run]` | Without a Run: lists every Run. With one: its Stages, what it is waiting for (an answer, an approval), and cost so far |
 | `orchestrate resume <run> [--cost-cap-run USD]` | Continues a Run. It reads your reply to the open question, or a maintainer's `approved:<checkpoint>` label added after the approval was requested, and re-reads PR checks and merges. It retries a paused Stage (or every paused Lane) with fresh attempts, and continues a stopped Run from the step after the last one that finished. `--cost-cap-run` raises the Run's cost cap first. When nothing has changed, it does nothing and says what the Run is waiting for |
 | `orchestrate stop <run>` | Safe-stop: the current step finishes, later steps wait for `resume`. Works from another terminal while a command is running the Run, and while the Run waits on a human. A `stop` label on the Issue does the same; remove it before resuming |
-| `orchestrate approve <run> <checkpoint>` | Approves `spec`, `adr-NNNN` (one per ADR) or `tickets`. The approval is bound to the content hash that was submitted; if the file changed since, it is refused |
+| `orchestrate replan <run>` | Compares the hashes each Stage recorded for its inputs with the artifacts as they are now. If something changed, the Run re-plans from the first Stage that consumes it (see [Re-plan](#re-plan)); otherwise it says nothing changed. A finished Run is never re-planned |
+| `orchestrate approve <run> <checkpoint>` | Approves `spec`, `adr-NNNN` (one per ADR), `tickets`, `dependency:<lane>` or `amendment-N`. The approval is bound to the content hash that was submitted; if the file changed since, it is refused |
 | `orchestrate reject <run> <checkpoint> --reason "…"` | Rejects with a reason; the Stage revises and asks for approval again (an earlier label no longer counts). `reject <run> lane:<key>` rolls back a Lane that is paused (any of them, when several are) |
 | `orchestrate verify <run>` / `--all` | Checks that Event Logs are intact (sequence, each event's hash, the link to the previous event) and names the first broken event |
 
@@ -73,6 +74,23 @@ flowchart LR
 - **A Lane starts** when every ticket blocking it has merged, so it branches from a `main` that already has their work. At most `max_parallel_lanes` Lanes are in flight, from `lane_started` until merged or rolled back (`lane_finished`); a freed slot goes to the next ready Lane at the next join.
 - **Agent work runs concurrently**, one branch per Lane, each up to its next wait. Branches never wait for a human; `status` shows every PR waiting on checks or a merge at once.
 - **Shared state stays consistent:** Lanes are merged into the Run's state by key, and Event Log appends and git commands run one at a time.
+
+## Re-plan
+
+Plans change while a Run is in progress (ADR 0011). Each Stage declares what it consumes, and records the hashes of those inputs and of the approvals it relied on (`stage_passed`, or `stage_started` for the Lanes):
+
+| Stage | Inputs | A change restarts from |
+|---|---|---|
+| requirements | the Issue (title and body) | requirements: the spec is redrafted and approved again |
+| design | the spec | design |
+| decompose | the spec and the accepted ADRs | decompose (an edited ADR set) |
+| lanes | the ticket breakdown | the `tickets` approval: an edited breakdown is approved as it is, not redrafted |
+
+- **Where approved artifacts live.** On the Run's documents branch until its documents PR merges, then on `main`. A change reaches them only through GitHub: a push to that branch, or a merged PR.
+- **Detection.** At the start of every Stage, at every join of the Lanes, and on `orchestrate replan`. Hashes ignore formatting-only edits (line endings, trailing whitespace).
+- **What happens.** A `replanned` event records each change's old and new hash, the Stage it restarts from, and what it invalidated (`invalidated`, one per Stage). Waiting approvals are withdrawn (`approval_withdrawn`), an unmerged documents PR is closed, and the Run's branch takes in the change. The Run continues from that Stage; everything upstream is kept.
+- **Lanes after a re-plan** are reconciled with the newly approved breakdown. A Lane whose ticket is unchanged carries on. An unmerged Lane whose ticket changed is redone: its PR is closed and its branch deleted. A merged Lane is never rewritten: a changed ticket gets a **follow-up ticket** (`T1-f1`, "Follow-up to #N", `follow_up_created`) that runs as a new Lane. A new ticket gets a new Lane.
+- **Spec amendments.** Agents may not edit the spec (`docs/specs/` is writable only in requirements). An agent that finds a gap outputs `spec_amendment`. The amended spec is pushed to `docs/run-R-NNNN-amendment-N` (`amendment_raised`), and the Lane waits for the `amendment-N` approval, bound to its hash. Once it's approved, the orchestrator opens a PR to `main`. Merging that PR changes the spec on `main`, the Run re-plans from design, and the Lane continues on the amended spec. A rejection goes back to implement with the reason.
 
 ## Failure handling
 
