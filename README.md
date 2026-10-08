@@ -79,6 +79,10 @@ flowchart LR
 
 How it works: the [Redirect and Click flows](docs/architecture.md#the-click-flow-clickstream) and [SQLite concurrency](docs/architecture.md#sqlite-concurrency-adr-0021) in the architecture, the [glossary](CONTEXT.md) terms *Click Recorder*, *Referrer Host*, *Agent Category* and *Device Class*, the settings and code tour in [onboarding](docs/onboarding.md), the test evidence in [plan 0001](docs/plans/0001-integration-testing.md#spec-0003-coverage), and the [roadmap](docs/roadmap.md) (R10: done, with its PRs).
 
+### In progress in Release 2 (roadmap R2, [spec 0005](docs/specs/0005-click-stats-per-link.md))
+
+- **Manage Token on create (#104):** `POST /links` now also returns a `manage_token` next to `short_code`, `short_url` and `long_url`, sent with `Cache-Control: no-store`. It is shown this once and never again: the shortener stores only its SHA-256 hash, never the token itself, and never logs it ([ADR 0014](docs/adr/0014-creator-only-stats-via-manage-token.md), [ADR 0023](docs/adr/0023-manage-token-hashed-with-sha-256.md)). Every other field, status code and error is unchanged; a rejected or failed create carries no token. Links created before this change have no Manage Token and keep Redirecting as before. The token will authorise reading the Link's Stats, which come with the next spec 0005 tickets; the web page doesn't show it yet. Glossary term *Manage Token* in [CONTEXT.md](CONTEXT.md); test evidence in [plan 0001](docs/plans/0001-integration-testing.md#spec-0005-coverage).
+
 ### Planned ([roadmap](docs/roadmap.md))
 
 | Release | Feature | Decided in |
@@ -151,7 +155,8 @@ Try it:
 ```bash
 curl -s -X POST localhost:8000/links -H 'content-type: application/json' \
      -d '{"url": "https://example.com/very/long"}'
-# {"short_code":"mFzrymu","short_url":"http://localhost:8000/mFzrymu","long_url":"https://example.com/very/long"}
+# 201 {"short_code":"mFzrymu","short_url":"http://localhost:8000/mFzrymu","long_url":"https://example.com/very/long",
+#      "manage_token":"<43 random characters, shown only this once>"}
 curl -si localhost:8000/mFzrymu    # 302, Location: https://example.com/very/long, Cache-Control: no-store
 
 curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"url": "ftp://example.com"}'
