@@ -65,7 +65,7 @@ Each agent step is a fresh [Claude Agent SDK](https://code.claude.com/docs/en/ag
 | decompose | `delivery/runs/R-NNNN/tickets.json`: vertical slices with blocking edges | At least one ticket; unique keys; acceptance criteria; a known kind; blockers that exist; no cycles | `tickets`; approval publishes the Issues blockers first, with `ready-for-agent`, the Release milestone, the board entry and native "blocked by" links |
 
 | lanes | First a PR that takes the Run's documents to `main`; then, per ticket and in parallel where blocking edges allow (below), `feat/<issue>-<slug>` in its own worktree: **implement** → **document** → **PR** (`Closes #<issue>`) | implement: `verify_command` passes in the worktree, plus browser checks against a **temporary instance** when web paths changed; PR: every required check on the pushed commit is green (a failure goes back to implement with the check output) | `merge:<pr>`: a human merges on GitHub; the orchestrator never merges |
-| release readiness | — | Every PR merged; every Lane PR says `Closes #<issue>`; every commit references its ticket; every approval has an approver | — |
+| release readiness | — | Every PR merged; every Lane PR says `Closes #<issue>`; every commit's full subject references its ticket (long subjects that GitHub cuts in two are joined again); every approval has an approver | — |
 | close-out | `delivery/runs/R-NNNN/report.md` and `events.jsonl`, spec marked `implemented` and its row in the spec index added or updated, `delivery/metrics.md` regenerated, in one PR | — | that PR's merge |
 
 A failing gate goes back to the agent with its problems, up to `max_retries` times; then the Stage fails and the Run pauses. A rejection goes back with its reason, and the revision needs a fresh approval.
