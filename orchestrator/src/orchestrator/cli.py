@@ -98,6 +98,14 @@ def _open_approvals(log: list[dict[str, Any]]) -> list[str]:
     return [checkpoint for checkpoint, open_ in waiting.items() if open_]
 
 
+def _waiting_checks(log: list[dict[str, Any]]) -> list[int]:
+    last: dict[int, str] = {}
+    for e in log:
+        if e["type"] in ("pr_opened", "pr_updated", "checks_passed", "checks_failed"):
+            last[e["data"]["pr"]] = e["type"]
+    return [pr for pr, t in last.items() if t in ("pr_opened", "pr_updated")]
+
+
 def _run_state(log: list[dict[str, Any]]) -> str:
     if any(e["type"] == "run_finished" for e in log):
         return "finished"
@@ -127,6 +135,8 @@ def _print_run(workspace: Workspace, run: str) -> None:
     question = _open_question(log)
     if question is not None:
         print(f"Waiting for: an answer to Q{question} on Issue #{issue}")
+    for pr in _waiting_checks(log) if _run_state(log) == "active" else []:
+        print(f"Waiting for: required checks on PR #{pr}")
     approvals = _open_approvals(log)
     print(f"Approvals waiting: {', '.join(approvals) if approvals else 'none'}")
     cost = sum(e["data"].get("cost_usd", 0.0) for e in log if e["type"] == "agent_call")
@@ -189,6 +199,8 @@ def _resume(deps: Deps, workspace: Workspace, run: str) -> int:
         reply = next((c for c in comments[after:] if marker(run) not in c.body), None)
         if reply:
             graph.resume(ctx, {"body": reply.body, "by": reply.author})
+    elif waiting and waiting["kind"] in ("checks", "merge"):
+        graph.resume(ctx, {})  # the waiting node re-reads the PR from GitHub
     elif waiting and waiting["kind"] == "approval":
         label = f"approved:{waiting['checkpoint']}"
         approval = next(
@@ -218,6 +230,14 @@ def _changed_message(waiting: dict[str, Any]) -> str:
 
 
 def _decide(deps: Deps, workspace: Workspace, args: argparse.Namespace) -> int:
+    if args.checkpoint.startswith("merge:"):
+        pr = args.checkpoint.removeprefix("merge:")
+        print(
+            f"The orchestrator never merges: merge PR #{pr} on GitHub, "
+            f"then run `orchestrate resume {args.run}`",
+            file=sys.stderr,
+        )
+        return REFUSED
     ctx = _context(deps, workspace, args.run)
     waiting = graph.waiting_on(ctx)
     if not waiting or waiting["kind"] != "approval" or waiting["checkpoint"] != args.checkpoint:
