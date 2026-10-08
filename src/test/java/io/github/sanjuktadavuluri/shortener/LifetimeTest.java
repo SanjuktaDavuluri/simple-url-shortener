@@ -25,6 +25,20 @@ class LifetimeTest {
         .hasMessage("expires_in_days must be a whole number of days from 1 to 365.");
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"1", "30", "365"})
+  void aWholeNumberOfDaysTypedAsTextIsALifetime(String text) {
+    assertThat(Lifetime.parse(text).days()).isEqualTo(Integer.parseInt(text));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"0", "366", "1.5", "abc", "-1", "+30", "1e2", " 30", "", "99999999999"})
+  void textThatIsNotAWholeNumberOfDaysFromOneTo365GivesTheValidationMessage(String text) {
+    assertThatThrownBy(() -> Lifetime.parse(text))
+        .isInstanceOf(InvalidLifetimeException.class)
+        .hasMessage("expires_in_days must be a whole number of days from 1 to 365.");
+  }
+
   @Test
   void theExpiryIsTheCreationInstantPlusTheLifetimeInWhole24HourDays() {
     Instant created = Instant.parse("2026-10-08T10:00:00Z");

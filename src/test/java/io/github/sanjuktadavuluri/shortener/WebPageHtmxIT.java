@@ -3,10 +3,13 @@ package io.github.sanjuktadavuluri.shortener;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
@@ -96,6 +99,95 @@ class WebPageHtmxIT extends IntegrationTest {
     assertThat(status).isNotNull();
     assertThat(status.attr("role")).isEqualTo("status");
     assertThat(status.parents()).noneMatch(parent -> parent.id().equals("shortener"));
+  }
+
+  @Test
+  void theFragmentOffersTheLifetimeField() {
+    shortCodes.willReturn("Ab3xK9q");
+
+    MvcTestResult response = submit("https://example.com/very/long", "", true);
+
+    WebPageIT.assertLifetimeFieldIsOffered(Jsoup.parseBodyFragment(body(response)));
+  }
+
+  @Test
+  void aLifetimeComesBackAsAFragmentShowingTheExpiryInUtc() {
+    clock.set(Instant.parse("2026-10-08T10:15:00Z"));
+    shortCodes.willReturn("Ab3xK9q");
+
+    MvcTestResult response = submit("https://example.com/very/long", "30", true);
+
+    assertThat(response).hasStatus(200);
+    Document fragment = Jsoup.parseBodyFragment(body(response));
+    assertThat(fragment.select("h1")).isEmpty();
+    assertThat(fragment.selectFirst("[data-short-url]").text()).isEqualTo("http://sho.rt/Ab3xK9q");
+    assertThat(fragment.selectFirst("#result [data-expiry]").text())
+        .isEqualTo("Expires on 2026-11-07 10:15 UTC");
+  }
+
+  @Test
+  void aBlankLifetimeComesBackAsAFragmentWithNoExpiry() {
+    shortCodes.willReturn("Ab3xK9q");
+
+    MvcTestResult response = submit("https://example.com/very/long", "", true);
+
+    assertThat(response).hasStatus(200);
+    Document fragment = Jsoup.parseBodyFragment(body(response));
+    assertThat(fragment.selectFirst("[data-short-url]").text()).isEqualTo("http://sho.rt/Ab3xK9q");
+    assertThat(fragment.select("[data-expiry]")).isEmpty();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"0", "366", "1.5", "abc"})
+  void anInvalidLifetimeComesBackAsAFragmentWithTheMessageAtTheField(String days) {
+    shortCodes.willReturn("Ab3xK9q");
+
+    MvcTestResult response = submit("https://example.com/very/long", days, true);
+
+    assertThat(response).hasStatus(422);
+    Document fragment = Jsoup.parseBodyFragment(body(response));
+    assertThat(fragment.select("h1")).isEmpty();
+    WebPageIT.assertInvalidLifetimeAtTheField(fragment, "https://example.com/very/long", days);
+    assertThat(mvc.get().uri("/Ab3xK9q")).hasStatus(404);
+  }
+
+  @Test
+  void aRuleBreakingLongUrlWithABlankLifetimeComesBackWithTheReasonAtTheUrlField() {
+    MvcTestResult response = submit("ftp://example.com/file", "", true);
+
+    assertThat(response).hasStatus(422);
+    Document fragment = Jsoup.parseBodyFragment(body(response));
+    assertThat(fragment.getElementById("url-error").text())
+        .isEqualTo("Only http:// and https:// web addresses can be shortened.");
+    assertThat(fragment.getElementById("expires_in_days-error")).isNull();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"30", "abc"})
+  void theFragmentAndTheFullPageRenderTheSameMarkupForALifetime(String days) {
+    shortCodes.willReturn("Ab3xK9q", "Zz9yX8w");
+    String fromHtmx =
+        Jsoup.parseBodyFragment(body(submit("https://example.com/x", days, true)))
+            .getElementById("shortener")
+            .outerHtml();
+    String fromFullPage =
+        html(submit("https://example.com/x", days, false)).getElementById("shortener").outerHtml();
+
+    assertThat(fromHtmx.replace("Ab3xK9q", "<code>"))
+        .isEqualTo(fromFullPage.replace("Zz9yX8w", "<code>"));
+  }
+
+  private MvcTestResult submit(String longUrl, String expiresInDays, boolean viaHtmx) {
+    var request =
+        mvc.post()
+            .uri("/")
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+            .param("url", longUrl)
+            .param("expires_in_days", expiresInDays);
+    if (viaHtmx) {
+      request = request.header("HX-Request", "true");
+    }
+    return request.exchange();
   }
 
   private MvcTestResult submit(String longUrl, boolean viaHtmx) {

@@ -1,29 +1,42 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <body>
-<!--/* The shortener: form, field, Rejection Reason and result in one fragment (ADR 0006).
-       The full page and HTMX responses render this same fragment. */-->
+<!--/* The shortener: form, fields, their messages and the result in one fragment (ADR 0006).
+       The full page and HTMX responses render this same fragment. The form is novalidate:
+       the server is the only judge of the Long URL and the Lifetime (spec 0004). */-->
 <section id="shortener" class="card" th:fragment="shortener" aria-labelledby="shortener-heading">
   <h2 id="shortener-heading">Shorten a link</h2>
 
   <form method="post" action="/" novalidate
         hx-post="/" hx-target="#shortener" hx-swap="outerHTML">
-    <label for="url">Long URL</label>
-    <div class="field-row">
+    <div class="field">
+      <label for="url">Long URL</label>
       <input id="url" name="url" type="text" inputmode="url" autocomplete="url"
              spellcheck="false" autocapitalize="off"
              placeholder="https://example.com/a/very/long/address"
              th:value="${longUrl}"
              th:attr="aria-invalid=${rejectionReason != null} ? 'true' : null,
                       aria-describedby=${rejectionReason != null} ? 'url-error' : null">
-      <button type="submit">Shorten</button>
+      <p id="url-error" class="field-error" role="alert" th:if="${rejectionReason != null}"
+         th:text="${rejectionReason}">Rejection Reason</p>
     </div>
-    <p id="url-error" class="field-error" role="alert" th:if="${rejectionReason != null}"
-       th:text="${rejectionReason}">Rejection Reason</p>
+    <div class="field">
+      <label for="expires_in_days">Expires after (days)</label>
+      <p id="expires_in_days-hint" class="hint">Leave blank to keep the link forever</p>
+      <input id="expires_in_days" name="expires_in_days" type="number" min="1" max="365"
+             inputmode="numeric" autocomplete="off"
+             th:value="${expiresInDays}"
+             th:attr="aria-invalid=${lifetimeError != null} ? 'true' : null,
+                      aria-describedby=${lifetimeError != null}
+                        ? 'expires_in_days-error expires_in_days-hint' : 'expires_in_days-hint'">
+      <p id="expires_in_days-error" class="field-error" role="alert"
+         th:if="${lifetimeError != null}" th:text="${lifetimeError}">Validation message</p>
+    </div>
+    <button type="submit">Shorten</button>
   </form>
 
   <!--/* Kept on one line: .result:empty hides the box only when no whitespace is left inside. */-->
-  <div id="result" class="result" aria-live="polite"><p class="failure" role="alert" th:if="${failure != null}" th:text="${failure}">Failure</p><p class="short-url" th:if="${link != null}"><span class="visually-hidden">Your Short URL:</span><a data-short-url th:href="${link.shortUrl()}" th:text="${link.shortUrl()}">Short URL</a><button type="button" data-copy th:attr="data-copy=${link.shortUrl()}" hidden>Copy</button></p></div>
+  <div id="result" class="result" aria-live="polite"><p class="failure" role="alert" th:if="${failure != null}" th:text="${failure}">Failure</p><p class="short-url" th:if="${link != null}"><span class="visually-hidden">Your Short URL:</span><a data-short-url th:href="${link.shortUrl()}" th:text="${link.shortUrl()}">Short URL</a><button type="button" data-copy th:attr="data-copy=${link.shortUrl()}" hidden>Copy</button></p><p class="expiry" data-expiry th:if="${link != null and expiry != null}" th:text="|Expires on ${expiry} UTC|">Expires on 2026-11-07 10:15 UTC</p></div>
 </section>
 </body>
 </html>
