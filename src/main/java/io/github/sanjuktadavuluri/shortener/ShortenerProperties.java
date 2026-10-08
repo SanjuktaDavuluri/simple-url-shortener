@@ -19,6 +19,8 @@ public record ShortenerProperties(String baseUrl, String databasePath, Clicks cl
    * @param queueCapacity how many Clicks may wait to be saved; more are dropped and counted
    * @param batchSize the most Clicks saved with one Click Store call
    * @param flushInterval the longest the writer waits for a batch to fill before saving it
+   * @param shutdownTimeout the longest a normal shutdown waits for queued Clicks to be saved
    */
-  public record Clicks(int queueCapacity, int batchSize, Duration flushInterval) {}
+  public record Clicks(
+      int queueCapacity, int batchSize, Duration flushInterval, Duration shutdownTimeout) {}
 }
