@@ -7,6 +7,7 @@ Run's report, finishes its Event Log, and opens one PR that commits both under d
 import re
 import shutil
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 from orchestrator import metrics
@@ -151,6 +152,31 @@ Started {started["ts"]} · finished {events[-1]["ts"]} · {len(events)} events
 """
 
 
+def index_spec(tree: Path, spec_path: str, roadmap: str) -> None:
+    """Add the spec's row to the spec index as implemented, or mark its existing row implemented.
+    Agents may not write docs/specs/ after requirements; this is the orchestrator's own step."""
+    index = tree / "docs" / "specs" / "README.md"
+    spec = tree / spec_path
+    if not index.is_file() or not spec.is_file():
+        return
+    name = Path(spec_path).name
+    number = name[:4]
+    lines = index.read_text().splitlines()
+    for i, line in enumerate(lines):
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) >= 4 and cells[0] == number:
+            cells[2] = "implemented"
+            lines[i] = "| " + " | ".join(cells) + " |"
+            break
+    else:
+        heading = next((ln for ln in spec.read_text().splitlines() if ln.startswith("# ")), name)
+        title = re.sub(r"^# (Spec \d{4}: )?", "", heading)
+        row = f"| {number} | [{title}]({name}) | implemented | {roadmap} |"
+        last = max(i for i, ln in enumerate(lines) if ln.startswith("| "))
+        lines.insert(last + 1, row)
+    index.write_text("\n".join(lines) + "\n")
+
+
 class CloseOut:
     """Commits the report and the finished Event Log, and marks the spec implemented, in one PR."""
 
@@ -188,6 +214,11 @@ class CloseOut:
         shutil.copyfile(ctx.log.path, target / "events.jsonl")
         (target / "report.md").write_text(report(ctx.run, ctx.log.read()))
         metrics.regenerate(tree)  # the committed Runs on main, plus this one
+        index_spec(
+            tree,
+            state["spec"]["path"],
+            f"{state.get('roadmap_item') or '—'}: Run {ctx.run}, Issue #{ctx.issue}",
+        )
         commit_all(
             tree, f"docs: close out {ctx.run}: report, Event Log, spec implemented (#{ctx.issue})"
         )

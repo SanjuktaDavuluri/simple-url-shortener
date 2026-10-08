@@ -7,7 +7,7 @@ model: claude-opus-5-5
 board_owner: SanjuktaDavuluri   # delivery board (GitHub Project) where published tickets go
 board_number: 1
 # Exit Gate commands, run inside a Lane's own worktree (defaults shown)
-verify_command: ./mvnw -B -q verify
+verify_command: scripts/with-jdk.sh ./mvnw -B -q verify   # finds JDK 25 like scripts/local.sh
 web_paths: src/main/resources/templates/,src/main/resources/static/
 app_start_command: scripts/local.sh start            # PORT and DATA_DIR are a free port and a fresh temp dir
 app_stop_command: scripts/local.sh stop

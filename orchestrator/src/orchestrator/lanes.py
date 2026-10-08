@@ -17,10 +17,11 @@ from langgraph.types import Send, interrupt
 from orchestrator import lineage
 from orchestrator.agent import StepRequest
 from orchestrator.approvals import gate_failed, record_gate, review_step
-from orchestrator.commands import run, with_temporary_instance
+from orchestrator.commands import Outcome, run, with_temporary_instance
 from orchestrator.context import RunContext, RunPaused, RunStopped, marker
 from orchestrator.gitops import (
     bring_in,
+    bring_in_main,
     changed_since_main,
     commit_all,
     lane_branch,
@@ -336,6 +337,18 @@ class DocsChecksFailed:
 # The scheduler: polls the waiting Lanes, skips and starts Lanes, then fans out the agent work
 
 
+def environment_pause(ctx: RunContext, current: Lane, outcome: Outcome) -> Lane:
+    """A gate command couldn't run on this machine: no code change can fix that, so the Lane
+    pauses at once instead of sending the agent round its retries. `resume` re-runs the gate."""
+    reason = f"`{outcome.command}` couldn't run here: {outcome.output.strip()[-300:]}"
+    ctx.event("paused", "implement", {"reason": reason, "lane": current["key"]})
+    ctx.mirror(
+        f"⏸️ Lane **{current['key']}** paused: {reason}\n\nFix the machine (for example install "
+        f"JDK 25), then `orchestrate resume {ctx.run}` re-runs the gate."
+    )
+    return {**current, "status": "paused", "paused_stage": "implement", "phase": "verify"}
+
+
 def lane_gate_failed(
     ctx: RunContext, stage: str, what: str, current: Lane, problems: list[str], retry: str
 ) -> Lane:
@@ -365,9 +378,46 @@ class Schedule:
                 lanes[key] = self.merge(current)
             if current["status"] == "awaiting_amendment":
                 lanes[key] = self.amendment(current)
+        for key, current in lanes.items():
+            if current["status"] in ("awaiting_checks", "awaiting_merge"):
+                lanes[key] = self.up_to_date(current)
         self.skip(lanes)
         self.start(lanes)
         return {"lanes": list(lanes.values())}
+
+    def up_to_date(self, current: Lane) -> Lane:
+        """An open PR whose branch is behind main (a sibling Lane merged, say) takes main in and
+        has its checks run again, so it never goes stale or conflicts unseen. A conflict pauses the
+        Lane, naming the files; resolve them in its worktree, then `resume` pushes and re-checks."""
+        ctx = self.ctx
+        if ctx.github.pr(current["pr"]).state != "open":
+            return current
+        tree = lane_tree(ctx, current)
+        conflicts = bring_in_main(tree, f"chore: bring main into the Lane (#{current['issue']})")
+        if conflicts is None:
+            return current
+        if conflicts:
+            reason = (
+                f"PR #{current['pr']} conflicts with main in {', '.join(conflicts)}. Resolve them "
+                f"in {tree} (merge origin/main, commit with (#{current['issue']}))"
+            )
+            ctx.event("paused", "pr", {"reason": reason, "lane": current["key"]})
+            ctx.mirror(
+                f"⏸️ Lane **{current['key']}** paused: {reason}, "
+                f"then `orchestrate resume {ctx.run}`."
+            )
+            return {**current, "status": "paused", "paused_stage": "pr", "phase": "pr"}
+        sha = push(tree, current["branch"])
+        ctx.event(
+            "pr_updated",
+            "pr",
+            {"lane": current["key"], "pr": current["pr"], "sha": sha, "reason": "main moved"},
+        )
+        ctx.mirror(
+            f"Lane **{current['key']}**: main moved, so PR #{current['pr']} took it in; "
+            "its checks run again."
+        )
+        return {**current, "sha": sha, "status": "awaiting_checks"}
 
     def checks(self, current: Lane) -> Lane:
         ctx, pr = self.ctx, current["pr"]
@@ -581,6 +631,9 @@ class LaneWork:
             )
         problems = [o.problem() for o in outcomes if not o.ok]
         record_gate(ctx, "implement", "verify passes", problems, current["key"])
+        unrunnable = [o for o in outcomes if o.environment]
+        if unrunnable:
+            return environment_pause(ctx, current, unrunnable[0])
         if problems:
             return lane_gate_failed(ctx, "implement", "verify", current, problems, "implement")
         ctx.event("stage_passed", "implement", {"lane": current["key"]})

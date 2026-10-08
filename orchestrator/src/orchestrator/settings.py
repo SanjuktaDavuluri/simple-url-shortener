@@ -17,7 +17,7 @@ class Settings:
     board_owner: str = ""
     board_number: int = 0
     # Exit Gate commands, run inside a Lane's worktree (never the engineer's checkout)
-    verify_command: str = "./mvnw -B -q verify"
+    verify_command: str = "scripts/with-jdk.sh ./mvnw -B -q verify"  # finds JDK 25 itself
     web_paths: str = "src/main/resources/templates/,src/main/resources/static/"
     app_start_command: str = "scripts/local.sh start"
     app_stop_command: str = "scripts/local.sh stop"

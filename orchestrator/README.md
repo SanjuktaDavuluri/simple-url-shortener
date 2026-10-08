@@ -19,13 +19,13 @@ export ANTHROPIC_API_KEY=…            # or rely on your Claude login
 uv run orchestrate --help
 ```
 
-Run it from anywhere inside the repository; it finds the repository root with git. The delivery board and the model are set in [`settings.yaml`](settings.yaml).
+Run it from anywhere inside the repository; it finds the repository root with git. The verify gate finds JDK 25 itself (`scripts/with-jdk.sh`, the same lookup as `scripts/local.sh`), so `JAVA_HOME` needn't be exported. The delivery board and the model are set in [`settings.yaml`](settings.yaml).
 
 ## The agent
 
 Each agent step is a fresh [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk) session (`src/orchestrator/claude_agent.py`):
 - **Model:** the Run's `model` setting (`claude-opus-5-5`), at high effort.
-- **Workspace:** the step's own worktree. The agent has the file, search, shell and fetch tools, and nothing outside that list runs (`dontAsk`). It never commits, pushes or opens PRs; the orchestrator does that after its gates.
+- **Workspace:** the step's own worktree. The agent has the file, search, shell and fetch tools, and nothing outside that list runs (`dontAsk`). It sees no MCP servers, not even your own connectors (strict MCP configuration). It never commits, pushes or opens PRs; the orchestrator does that after its gates.
 - **Guardrail:** every tool call first passes a **`PreToolUse` hook** that is the Run's policy check, the same `decide` function the Exit Gates use. A denied call is refused before it runs, its reason goes back to the agent, and it's recorded as `policy_blocked`.
 - **Budget:** each step is capped at `cost_cap_step_usd`.
 - **Answer:** each step gives a structured answer (a JSON schema per Stage) and reports its tokens, cost and duration (`agent_call`). A step that ends without its answer is recorded and pauses the Run; `resume` retries it.
@@ -66,7 +66,7 @@ Each agent step is a fresh [Claude Agent SDK](https://code.claude.com/docs/en/ag
 
 | lanes | First a PR that takes the Run's documents to `main`; then, per ticket and in parallel where blocking edges allow (below), `feat/<issue>-<slug>` in its own worktree: **implement** → **document** → **PR** (`Closes #<issue>`) | implement: `verify_command` passes in the worktree, plus browser checks against a **temporary instance** when web paths changed; PR: every required check on the pushed commit is green (a failure goes back to implement with the check output) | `merge:<pr>`: a human merges on GitHub; the orchestrator never merges |
 | release readiness | — | Every PR merged; every Lane PR says `Closes #<issue>`; every commit references its ticket; every approval has an approver | — |
-| close-out | `delivery/runs/R-NNNN/report.md` and `events.jsonl`, spec marked `implemented`, in one PR | — | that PR's merge |
+| close-out | `delivery/runs/R-NNNN/report.md` and `events.jsonl`, spec marked `implemented` and its row in the spec index added or updated, `delivery/metrics.md` regenerated, in one PR | — | that PR's merge |
 
 A failing gate goes back to the agent with its problems, up to `max_retries` times; then the Stage fails and the Run pauses. A rejection goes back with its reason, and the revision needs a fresh approval.
 
@@ -118,6 +118,9 @@ Plans change while a Run is in progress (ADR 0011). Each Stage declares what it 
 | An Exit Gate fails | Its output goes back to the agent; each retry is a `retry` event, up to `max_retries` |
 | Retries run out | The Stage fails and the Run **pauses**, posting the last problems on the Issue. `orchestrate resume` retries the Stage with fresh attempts. In a Lane, `orchestrate reject <run> lane:<key> --reason "…"` **rolls it back** instead |
 | A Lane pauses | Only that Lane stops; independent Lanes keep working and reach their PRs. The Run waits once nothing else can move |
+| A gate command can't run on this machine (exit 126/127, or a missing runtime such as "Unable to locate a Java Runtime") | The Lane pauses at once, without sending the agent round its retries: no code change can fix the machine. Fix it, then `resume` re-runs the gate, not the agent |
+| `main` moves while a Lane's PR is open (a sibling Lane merged, say) | The Lane takes `main` in (`chore: bring main into the Lane (#issue)`) and its checks run again. A conflict pauses the Lane and names the files: resolve them in its worktree (`.orchestrator/worktrees/R-NNNN-<issue>`), commit with `(#issue)`, then `resume` |
+| An agent step ends without its answer (a usage limit, an error) | Its spend is recorded and the Run pauses, with the SDK's own message in the reason; `resume` retries the step |
 | A Lane is rolled back, or a human closes its PR unmerged | Its PR is closed, its branch and worktree deleted, and its ticket goes back to Todo with a comment (`lane_rolled_back`). Lanes that merged are kept; Lanes blocked by it are skipped (`lane_skipped`); independent Lanes continue. The Run finishes as *partially delivered*, and the report lists what was rolled back or skipped |
 | `orchestrate stop`, or a `stop` label | **Safe-stop** at the next step boundary (`safe_stop`): the finished step is kept and nothing is repeated on `resume` |
 | The Run's spend reaches `cost_cap_run_usd` | Safe-stop before the next agent step. `resume --cost-cap-run <usd>` raises the cap (`settings_changed`) and continues |

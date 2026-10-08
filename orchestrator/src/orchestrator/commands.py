@@ -9,6 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 OUTPUT_TAIL = 4000
+# Signs that a command couldn't run on this machine at all, so no code change can fix it: shells
+# exit 126 (not executable) or 127 (not found), and these messages come from missing runtimes.
+ENVIRONMENT_EXIT_CODES = (126, 127)
+ENVIRONMENT_MESSAGES = ("Unable to locate a Java Runtime", "JAVA_HOME is not", "command not found")
 
 
 @dataclass(frozen=True)
@@ -16,9 +20,18 @@ class Outcome:
     command: str
     ok: bool
     output: str
+    returncode: int = 0
 
     def problem(self) -> str:
         return f"`{self.command}` failed:\n{self.output}"
+
+    @property
+    def environment(self) -> bool:
+        """The command couldn't run here (a missing tool or runtime), as opposed to failing."""
+        return not self.ok and (
+            self.returncode in ENVIRONMENT_EXIT_CODES
+            or any(m in self.output for m in ENVIRONMENT_MESSAGES)
+        )
 
 
 def run(command: str, cwd: Path, env: dict[str, str] | None = None) -> Outcome:
@@ -31,7 +44,7 @@ def run(command: str, cwd: Path, env: dict[str, str] | None = None) -> Outcome:
         text=True,
     )
     output = (result.stdout + result.stderr)[-OUTPUT_TAIL:]
-    return Outcome(command, result.returncode == 0, output)
+    return Outcome(command, result.returncode == 0, output, result.returncode)
 
 
 def free_port() -> int:
