@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
+from orchestrator import lineage
 from orchestrator.agent import StepRequest
 from orchestrator.approvals import gate_failed, record_gate, review_step
 from orchestrator.context import RunContext
@@ -61,7 +62,8 @@ class Begin:
     def __call__(self, state: RunState) -> RunState:
         self.ctx.event("stage_started", STAGE)
         self.ctx.mirror("Stage **design** started: ADRs for significant decisions, if any.")
-        return {"feedback": None, "attempts": 0, "accepted_adrs": {}}
+        # accepted ADRs never change, so a re-planned design keeps them and adds to them
+        return {"feedback": None, "attempts": 0, "accepted_adrs": state.get("accepted_adrs", {})}
 
 
 class Draft:
@@ -194,8 +196,8 @@ class Done:
             self.ctx.mirror(f"No ADR needed: {state.get('no_adr_reason')}")
         else:
             self.ctx.mirror(f"Design passed: {len(adrs)} ADR(s) accepted.")
-        self.ctx.event("stage_passed", STAGE, data)
-        return {"adrs_accepted": adrs, "feedback": None, "attempts": 0}
+        updated = lineage.passed(self.ctx, {**state, "adrs_accepted": adrs}, STAGE, data)
+        return {"adrs_accepted": adrs, "feedback": None, "attempts": 0, "lineage": updated}
 
 
 def after_gate(state: RunState) -> Literal["request_approval", "draft", "done", "stop"]:

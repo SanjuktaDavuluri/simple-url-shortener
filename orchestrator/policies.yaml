@@ -9,7 +9,7 @@ version: 1
 git:
   protected_branches: [main]
   # The only branches a Run may delete: its own Lane and documents branches.
-  run_branch_pattern: '^(feat|fix|test|docs)/\d+-[a-z0-9-]+$|^docs/run-R-\d{4}(-close-out)?$'
+  run_branch_pattern: '^(feat|fix|test|docs)/\d+-[a-z0-9-]+$|^docs/run-R-\d{4}(-close-out|-amendment-\d+)?$'
 
 # Paths agents may never write.
 protected_paths:
@@ -20,9 +20,11 @@ protected_paths:
   - orchestrator/settings.yaml
   - delivery/
 
-# Paths agents may write only in the listed Stages.
+# Paths agents may write only in the listed Stages. An approved spec changes only through an
+# approved amendment that reaches main as a PR (ADR 0011).
 stage_paths:
   docs/adr/: [design]
+  docs/specs/: [requirements]
 
 # Changing any of these is high impact: it adds a `dependency:<lane>` Approval Checkpoint.
 dependency_manifests:

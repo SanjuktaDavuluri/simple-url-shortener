@@ -26,6 +26,10 @@ def run_branch(run: str) -> str:
     return f"docs/run-{run}"
 
 
+def tickets_path(run: str) -> str:
+    return f"delivery/runs/{run}/tickets.json"
+
+
 def lane_branch(issue: int, title: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:48].rstrip("-")
     return f"feat/{issue}-{slug}"
@@ -118,3 +122,19 @@ def commit_and_push(tree: Path, run: str, paths: list[str], message: str) -> Non
     if _git(tree, "status", "--porcelain", "--", *paths).strip():
         _git(tree, "commit", "--quiet", "-m", message)
     push(tree, run_branch(run))
+
+
+def fetch(workspace: Workspace) -> None:
+    _git(workspace.repo_root, "fetch", "--quiet", "origin")
+
+
+def show(workspace: Workspace, ref: str, path: str) -> str | None:
+    """A file as it is on `ref` (fetched), or None when it isn't there."""
+    result = _run(workspace.repo_root, "show", f"{ref}:{path}", check=False)
+    return result.stdout if result.returncode == 0 else None
+
+
+def bring_in(tree: Path, ref: str, message: str) -> None:
+    """Merge `ref` into the worktree's branch (a fast-forward when possible), never rewriting it."""
+    _git(tree, "fetch", "--quiet", "origin")
+    _git(tree, "merge", "--quiet", "--no-edit", "-m", message, ref)

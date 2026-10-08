@@ -11,7 +11,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
-from orchestrator import decompose, design, lanes, requirements
+from orchestrator import decompose, design, lanes, lineage, requirements
 from orchestrator.approvals import AwaitApproval, Paused, RequestApproval
 from orchestrator.closeout import CloseOut, ReleaseReadiness
 from orchestrator.context import RunContext, RunPaused, RunStopped
@@ -25,9 +25,15 @@ def _after_intake(state: RunState) -> Literal["next", "stop"]:
     return "next" if state.get("intake_passed") else "stop"
 
 
+# Stage boundaries, where changed inputs are detected (ADR 0011): the start of each Stage, and each
+# join of the Lanes.
+DETECT_AT = (*(s for s in STAGES if s != "intake"), "lanes_schedule")
+
+
 class Boundary:
     """Runs before every node: a requested Safe-stop or a `stop` label halts the Run here, so the
-    step that just finished is kept and the next one waits for `orchestrate resume`."""
+    step that just finished is kept and the next one waits for `orchestrate resume`. At a Stage
+    boundary, a changed input raises `ReplanNeeded` before the Stage does anything."""
 
     def __init__(self, ctx: RunContext, name: str, node: Callable[[RunState], RunState]) -> None:
         self.ctx, self.name, self.node = ctx, name, node
@@ -35,6 +41,8 @@ class Boundary:
     def __call__(self, state: RunState) -> RunState:
         stage = next((s for s in STAGES if self.name.startswith(s)), self.name)
         self.ctx.check_boundary(stage)
+        if self.name in DETECT_AT:
+            lineage.check(self.ctx, state)
         return self.node(state)
 
 
@@ -161,6 +169,12 @@ def build(ctx: RunContext, checkpointer: SqliteSaver) -> Graph:
     # lanes: the Run's documents reach main first; then the Lanes fan out along their blocking
     # edges, up to max_parallel_lanes at once, and join before release readiness (ADR 0020)
     node("lanes", lanes.Begin(ctx))
+    node(
+        "amendment_request_approval",
+        RequestApproval(ctx, "implement", lanes.describe_amendment, lanes.amendment_location),
+    )
+    node("amendment_await_approval", AwaitApproval(ctx, "implement"))
+    node("amendment_decided", lanes.AmendmentDecided(ctx))
     node("docs_checks", lanes.AwaitChecks(ctx, lanes.docs_pr, lanes.docs_sha))
     node("docs_checks_failed", lanes.DocsChecksFailed(ctx))
     node("docs_paused", Paused(ctx, lanes.STAGE))
@@ -179,7 +193,7 @@ def build(ctx: RunContext, checkpointer: SqliteSaver) -> Graph:
     node("dependency_decided", lanes.DependencyDecided(ctx))
     node("rollback", lanes.Rollback(ctx))
     node("lanes_done", lanes.LanesDone(ctx))
-    g.add_edge("lanes", "docs_checks")
+    edges("lanes", lanes.after_begin, {"docs_checks": "docs_checks", "schedule": "lanes_schedule"})
     edges(
         "docs_checks",
         lanes.after_docs_checks,
@@ -205,13 +219,23 @@ def build(ctx: RunContext, checkpointer: SqliteSaver) -> Graph:
             "rollback",
             "lane_paused",
             "dependency_request_approval",
+            "amendment_request_approval",
             "lanes_wait",
             "lanes_done",
         ],
     )
     g.add_edge("lane_work", "lanes_join")
-    for waited in ("lanes_join", "lanes_wait", "lane_paused", "dependency_decided", "rollback"):
+    for waited in (
+        "lanes_join",
+        "lanes_wait",
+        "lane_paused",
+        "dependency_decided",
+        "amendment_decided",
+        "rollback",
+    ):
         g.add_edge(waited, "lanes_schedule")
+    g.add_edge("amendment_request_approval", "amendment_await_approval")
+    g.add_edge("amendment_await_approval", "amendment_decided")
     g.add_edge("dependency_request_approval", "dependency_await_approval")
     g.add_edge("dependency_await_approval", "dependency_decided")
     g.add_edge("lanes_done", "release_readiness")
@@ -227,6 +251,22 @@ def build(ctx: RunContext, checkpointer: SqliteSaver) -> Graph:
     )
     edges("readiness_paused", always_retry, {"retry": "release_readiness"})
     g.add_edge("close_out", END)
+
+    # re-plan (ADR 0011): reached only through `replan`, which records the changes on
+    # `replan_detected`; the Run continues from the first invalidated Stage
+    node("replan_detected", lambda state: {})
+    node("replan", lineage.Replan(ctx))
+    g.add_edge("replan_detected", "replan")
+    edges(
+        "replan",
+        lineage.after_replan,
+        {
+            "requirements": "requirements",
+            "design": "design",
+            "decompose": "decompose",
+            "decompose_gate": "decompose_gate",
+        },
+    )
     return g.compile(checkpointer=checkpointer)
 
 
@@ -241,13 +281,23 @@ def _config(ctx: RunContext) -> Any:
     return {"configurable": {"thread_id": ctx.run}, "recursion_limit": 10_000}
 
 
-def _invoke(ctx: RunContext, value: Any) -> None:
+def _invoke(ctx: RunContext, value: Any, changes: list[lineage.Change] | None = None) -> None:
+    """Run the graph until it waits, pauses or stops. A changed input found at a Stage boundary
+    jumps the Run to its `replan` node, dropping whatever it was waiting for, and continues."""
     lock = ctx.workspace.lock(ctx.run)
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_text(str(os.getpid()))
     try:
         with open_graph(ctx) as graph:
-            graph.invoke(value, _config(ctx))
+            while True:
+                if changes:
+                    graph.update_state(_config(ctx), {"replan": changes}, as_node="replan_detected")
+                    value, changes = None, None
+                try:
+                    graph.invoke(value, _config(ctx))
+                    break
+                except lineage.ReplanNeeded as needed:
+                    changes = needed.changes
     except RunStopped as stopped:
         ctx.event("safe_stop", stopped.stage or None, {"reason": stopped.reason})
         ctx.mirror(
@@ -289,3 +339,14 @@ def waiting_on(ctx: RunContext) -> dict[str, Any] | None:
 
 def resume(ctx: RunContext, value: dict[str, Any]) -> None:
     _invoke(ctx, Command(resume=value))
+
+
+def detect(ctx: RunContext) -> list[lineage.Change]:
+    """What changed since the Run recorded its inputs (`orchestrate replan`)."""
+    with open_graph(ctx) as graph:
+        values: dict[str, Any] = graph.get_state(_config(ctx)).values
+    return lineage.changes(ctx, RunState(**values))  # type: ignore[typeddict-item]
+
+
+def replan(ctx: RunContext, changes: list[lineage.Change]) -> None:
+    _invoke(ctx, None, changes)

@@ -41,6 +41,11 @@ class RunState(TypedDict, total=False):
     # lanes
     docs_pr: int
     docs_sha: str
+    lineage: dict[str, dict[str, str]]  # per Stage: its inputs' hashes when recorded (ADR 0011)
+    replan: list[dict[str, str]]  # the changes a Re-plan is acting on
+    replan_target: str  # the node it continues from
+    docs_merged: bool  # whether the Run's latest documents PR has merged
+    docs_prs: list[int]
     lanes: Annotated[list[dict[str, Any]], merge_lanes]
     current: str  # the Lane a parallel branch works on (only in its Send payload)
     ci: str
