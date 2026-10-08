@@ -3,19 +3,36 @@
 The **delivery plane** of this repository: a development-time command-line tool that drives a GitHub Issue through gated Stages to merge-ready pull requests, under human control. It never deploys, and it never connects to a running service (ADR 0007).
 
 - **Spec:** [0002](../docs/specs/0002-delivery-orchestrator.md) · **Decisions:** ADRs [0007](../docs/adr/0007-delivery-orchestrator.md)–[0011](../docs/adr/0011-orchestrator-replanning-and-lineage.md) and [0020](../docs/adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md) · **Vocabulary:** the Delivery section of [`CONTEXT.md`](../CONTEXT.md)
-- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28), **lanes → release readiness → close-out** (#29), **policy guardrails** (#32), **failure handling**: retries, pause and resume, Rollback, Safe-stop and cost caps (#31), **parallel Lanes** joined before release readiness (#30), **Re-plan** with content-hash lineage, follow-up tickets and spec amendments (#33), and **delivery metrics** (#34). The real agent arrives with #35 (Release 2).
+- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28), **lanes → release readiness → close-out** (#29), **policy guardrails** (#32), **failure handling**: retries, pause and resume, Rollback, Safe-stop and cost caps (#31), **parallel Lanes** joined before release readiness (#30), **Re-plan** with content-hash lineage, follow-up tickets and spec amendments (#33), **delivery metrics** (#34), and the **real agent**: the Claude Agent SDK with the policy check as its `PreToolUse` hook (#35). Spec 0002 is implemented.
 
 ## Setup
 
-Requires [uv](https://docs.astral.sh/uv/) (it installs Python 3.13 itself) and the GitHub CLI logged in (`gh auth login`).
+You need:
+- [uv](https://docs.astral.sh/uv/), which installs Python 3.13 itself
+- the GitHub CLI, logged in (`gh auth login`); the orchestrator uses your login and stores nothing
+- Claude access for the agent: `ANTHROPIC_API_KEY` in your environment, or a Claude login. The Claude Agent SDK reads it from the environment; the orchestrator never reads, passes or writes it
 
 ```bash
 cd orchestrator
 uv sync
+export ANTHROPIC_API_KEY=…            # or rely on your Claude login
 uv run orchestrate --help
 ```
 
-Run it from anywhere inside the repository; it finds the repository root with git.
+Run it from anywhere inside the repository; it finds the repository root with git. The delivery board and the model are set in [`settings.yaml`](settings.yaml).
+
+## The agent
+
+Each agent step is a fresh [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk) session (`src/orchestrator/claude_agent.py`):
+- **Model:** the Run's `model` setting (`claude-opus-5-5`), at high effort.
+- **Workspace:** the step's own worktree. The agent has the file, search, shell and fetch tools, and nothing outside that list runs (`dontAsk`). It never commits, pushes or opens PRs; the orchestrator does that after its gates.
+- **Guardrail:** every tool call first passes a **`PreToolUse` hook** that is the Run's policy check, the same `decide` function the Exit Gates use. A denied call is refused before it runs, its reason goes back to the agent, and it's recorded as `policy_blocked`.
+- **Budget:** each step is capped at `cost_cap_step_usd`.
+- **Answer:** each step gives a structured answer (a JSON schema per Stage) and reports its tokens, cost and duration (`agent_call`). A step that ends without its answer is recorded and pauses the Run; `resume` retries it.
+
+## Live smoke run
+
+`scripts/orchestrator-smoke.sh start` opens a small, throwaway Issue and starts a real Run for it against the Claude API and GitHub. `scripts/orchestrator-smoke.sh next` continues after each of your checkpoints. Run it on demand, never in CI: it spends API credit and creates a real Issue, a ticket and PRs. Its report and Event Log are kept by the Run's close-out PR under `delivery/runs/`.
 
 ## Commands available now
 
@@ -137,4 +154,4 @@ uv run ruff check . && uv run ruff format --check .
 uv run mypy src tests                  # strict
 ```
 
-CI runs the same three on every PR as the required check **"Orchestrator (lint, types, tests)"**. Tests drive only the `orchestrate` command (and, from #32, the policy check). They use a real git repository in a temporary directory and need no network or credentials.
+CI runs the same three on every PR as the required check **"Orchestrator (lint, types, tests)"**. Tests drive only the `orchestrate` command (and, from #32, the policy check). They use a real git repository in a temporary directory and need no network or credentials. The Agent SDK adapter is tested offline (its options, its policy hook, how it reports a step); the live path is proven by the smoke run.

@@ -11,6 +11,7 @@ from typing import Any
 
 from orchestrator import graph, metrics
 from orchestrator.agent import Agent
+from orchestrator.claude_agent import ClaudeAgent
 from orchestrator.context import RunContext, marker
 from orchestrator.events import verify
 from orchestrator.github import GhCliGitHub, GitHub, IssueNotFound
@@ -429,6 +430,7 @@ def _real_deps() -> Deps:
     return Deps(
         repo_root=root,
         github=GhCliGitHub(root, settings.board_owner, settings.board_number),
+        agent=ClaudeAgent(),
     )
 
 

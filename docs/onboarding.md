@@ -113,4 +113,27 @@ Deferred ideas are never dropped silently: they go into [`docs/roadmap.md`](road
 
 ## 8. The delivery orchestrator (from Release 2)
 
-The orchestrator automates the chain in section 5 under human control. It's a separate, development-time tool: it ends at a PR that's ready to merge, never deploys, and never connects to a running service. The design is in [ADRs 0007–0011](adr/0007-delivery-orchestrator.md) and [0020](adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md). Usage instructions will be added here when it's built.
+The orchestrator automates the chain in section 5 under human control. It's a separate, development-time tool: it ends at a PR that's ready to merge, never deploys, and never connects to a running service. The design is in [ADRs 0007–0011](adr/0007-delivery-orchestrator.md) and [0020](adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md); the full reference is [`orchestrator/README.md`](../orchestrator/README.md).
+
+**Set up once.** Install [uv](https://docs.astral.sh/uv/), log in to GitHub (`gh auth login`), and have Claude access: `ANTHROPIC_API_KEY` in your environment, or a Claude login. Then `cd orchestrator && uv sync`.
+
+**A Run, step by step:**
+
+1. `orchestrate start <issue>`: starts Run `R-NNNN` for a GitHub Issue that names its roadmap item (for example `R10`).
+2. Answer its clarifying questions in comments on the Issue, then `orchestrate resume <run>`. Every command returns as soon as the Run needs you; nothing keeps running.
+3. Approve or reject what it submits: `orchestrate approve <run> spec`, `adr-NNNN`, `tickets`, `dependency:<lane>` and `amendment-N`, or `orchestrate reject <run> <checkpoint> --reason "…"`. A maintainer's `approved:<checkpoint>` label on the Issue also counts.
+4. Review and **merge its PRs on GitHub** (it never merges): first the Run's documents, then one PR per ticket, as its Lanes run in parallel. Run `orchestrate resume <run>` after each merge.
+5. When every Lane is merged or rolled back, release readiness checks traceability, and close-out opens a PR with the Run's report, Event Log and refreshed `delivery/metrics.md`. Merge it.
+
+**Along the way:**
+
+| Command | Use it to |
+|---|---|
+| `orchestrate status [run]` | see the Stages, what the Run waits for, and its cost |
+| `orchestrate stop <run>` | Safe-stop it after the current step; `resume` continues |
+| `orchestrate reject <run> lane:<key> --reason "…"` | roll back a paused Lane |
+| `orchestrate replan <run>` | after changing an approved input on GitHub; only what depends on it is redone |
+| `orchestrate verify <run>` / `--all` | check that Event Logs are intact |
+| `orchestrate metrics` | regenerate `delivery/metrics.md` |
+
+Before the first real Run on a new machine, try `scripts/orchestrator-smoke.sh` on a throwaway Issue.
