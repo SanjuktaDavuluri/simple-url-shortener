@@ -55,8 +55,24 @@ Sending someone who requests a Short URL on to its Link's Long URL. The shortene
 _Avoid_: Forward, resolve, expand
 
 **Click**:
-One successful Redirect of one Link. It is the unit that future counting and auditing are built on.
-_Avoid_: Hit, visit, view
+One successful Redirect of one Link. It is recorded with its Short Code, the UTC time the Redirect was served, its Referrer Host, Agent Category and Device Class, and nothing that could identify a person. It is the unit that counting and auditing are built on.
+_Avoid_: Hit, visit, view, event (on its own)
+
+**Click Recorder**:
+What takes each Click off the Redirect path and saves it later: the Redirect hands the Click over and returns at once, and Clicks wait in a bounded queue until a single background writer saves them in batches. A Click it can't keep (the queue is full, or its batch fails to save) is dropped and counted, never waited for.
+_Avoid_: Tracker, logger, event bus, analytics pipeline
+
+**Referrer Host**:
+The host name, in lower case and without port, user info, path or query, of the page a Click came from, taken from the `Referer` header. A Click has none when the header is missing or isn't a valid `http`/`https` URL.
+_Avoid_: Referrer, referer URL, source, origin
+
+**Agent Category**:
+What kind of client followed the Link, reduced from its user agent: `browser`, `bot` (known crawlers and link-preview fetchers, checked first) or `other` (scripts, tools and a missing user agent).
+_Avoid_: User agent, browser type, client type
+
+**Device Class**:
+Whether a Click came from a `mobile` or a `desktop` device, reduced from its user agent. Anything without a mobile marker, including bots and a missing user agent, is `desktop`.
+_Avoid_: Device, platform, form factor
 
 ### Delivery
 
