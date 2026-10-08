@@ -148,6 +148,12 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #97 | **Click Store seam (story 18):** after `flush()`, `GET` and `HEAD` to an Expired Link store no Click; a `GET` before its Expiry stores exactly one | `ExpiringLinksIT` → `followingAnExpiredLinkStoresNoClick`, `followingALinkBeforeItsExpiryStoresExactlyOneClick` | ☐ #97 |
 | #97 | **Regression (story 23):** the Redirect is still one primary-key lookup; Redirect, Clickstream, Collision and Persistence tests pass unchanged apart from the new `LinkStore` signatures | `LinkApiIT`, `RedirectOverHttpIT`, `ClickstreamIT`, `CollisionIT`, `PersistenceIT` (unchanged). Review check: `JdbcLinkStore.findDestination` is a single `SELECT … WHERE short_code = :shortCode`, and the Expired check is in Java against the Clock | ☐ #97 |
 | #97 | `CONTEXT.md` defines Lifetime, Expiry and Expired Link, each with an _Avoid_ line; these rows added | `CONTEXT.md` (Links); this plan (section 5) | ☐ #97 |
+| #98 | **HTTP seam (story 4):** `expires_in_days` `0`, `-1`, `366`, `1.5`, `"30"`, `true` and `{}` each give a `422` problem detail "expires_in_days must be a whole number of days from 1 to 365."; nothing is coerced | `InvalidLifetimeIT` → `anInvalidLifetimeIsRefusedWithTheValidationMessage` (7 cases) | ☐ #98 |
+| #98 | **HTTP seam (story 4):** each of those creates no Link: the scripted Short Code still answers `404` and is given to the next valid request | `InvalidLifetimeIT` → `anInvalidLifetimeCreatesNoLinkAndUsesNoShortCode` (7 cases) | ☐ #98 |
+| #98 | **HTTP seam (order):** a `url` that is missing, `null` or not a string (object, array, boolean) together with a bad `expires_in_days` gets the existing malformed-request message | `InvalidLifetimeIT` → `aMalformedUrlIsReportedBeforeAnInvalidLifetime` (5 cases) | ☐ #98 |
+| #98 | **HTTP seam (order, story 5):** a Rule-breaking `url` with a valid or `null` `expires_in_days` keeps today's Rejection Reason; with a bad `expires_in_days` it gets the Lifetime message (Lifetime checked before the Rule Set) | `InvalidLifetimeIT` → `aValidLifetimeKeepsTheRejectionReasonOfARuleBreakingUrl` (4 cases), `theLifetimeIsCheckedBeforeTheRuleSet` (3 cases) | ☐ #98 |
+| #98 | **Regression (story 5):** every existing `422` (Rejection Reason, malformed request) and `503` answer is unchanged | `RejectionIT`, `LinkApiIT`, `CollisionIT` (unchanged) | ☐ #98 |
+| #98 | Plan 0001: these rows added | This plan (section 5) | ☐ #98 |
 
 Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 
