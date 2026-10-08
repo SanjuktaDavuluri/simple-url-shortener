@@ -1,6 +1,6 @@
 # Plans
 
-Plans describe **how** we carry out a cross-cutting effort (testing, rollout, migration) across several tickets and waves. Specs say **what** we build, ADRs say **why** a significant decision was made, and plans say **how we will verify and deliver** it. Each plan is numbered, committed, has a status, and is tracked by a GitHub issue.
+Plans describe **how** we carry out a cross-cutting effort (testing, rollout, migration) across several tickets and releases. Specs say **what** we build, ADRs say **why** a significant decision was made, and plans say **how we will verify and deliver** it. Each plan is numbered, committed, has a status, and is tracked by a GitHub issue.
 
 **Status lifecycle:** `draft` → `active` → `done`, or `dropped` (with the reason recorded).
 
