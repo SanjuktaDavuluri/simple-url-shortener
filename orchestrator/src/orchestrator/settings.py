@@ -29,6 +29,27 @@ class Settings:
         return asdict(self)
 
 
+AGENT_STEPS = ("requirements", "design", "decompose", "implement", "document")
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
+def check(settings: Settings) -> Settings:
+    """Model routing must name real agent steps and a known effort (ADR 0024)."""
+    if settings.effort not in EFFORTS:
+        raise ValueError(f"effort must be one of {', '.join(EFFORTS)}, not {settings.effort!r}")
+    unknown = set(settings.stage_models) - set(AGENT_STEPS)
+    if unknown:
+        raise ValueError(
+            f"stage_models names unknown agent steps: {', '.join(sorted(unknown))}"
+            f" (known: {', '.join(AGENT_STEPS)})"
+        )
+    if not all(
+        isinstance(m, str) and m.startswith("claude-") for m in settings.stage_models.values()
+    ):
+        raise ValueError("every stage_models value must be a Claude model ID (claude-…)")
+    return settings
+
+
 def load_settings(repo_root: Path) -> Settings:
     path = repo_root / "orchestrator" / "settings.yaml"
     if not path.exists():
@@ -40,4 +61,4 @@ def load_settings(repo_root: Path) -> Settings:
         raise ValueError(f"unknown settings in {path}: {', '.join(sorted(unknown))}")
     defaults = Settings()
     values = {k: type(getattr(defaults, k))(v) for k, v in raw.items()}
-    return replace(defaults, **values)
+    return check(replace(defaults, **values))

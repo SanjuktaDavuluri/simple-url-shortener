@@ -135,7 +135,7 @@ The orchestrator is development-time tooling. It never deploys, and it never con
 - **Bounded runs, not a daemon.** A command runs the graph until it completes, reaches a human checkpoint, pauses or stops, then exits. `resume` reloads the checkpoint and asks GitHub what changed: approvals, labels, merges, replies.
 - **Approvals.** Checkpoints are `spec`, `adr-NNNN` (one per ADR), `tickets`, `merge:<pr>`, and `dependency:<lane>` (high impact). The channels are the CLI and maintainer-applied labels. Merge approval is detected only from the PR's merged state. An approval binds to the content hash of the artifact as it was when approved.
 - **Two external adapters, each behind an interface:**
-  - **Agent**: given a stage, instructions, a workspace path, allowed tools and a budget, it returns the files changed, structured output, and token, cost and duration figures. The real adapter uses the Claude Agent SDK (model `claude-opus-5-5`), with a `PreToolUse` hook that calls the policy check. The test adapter is a **scripted agent**: per stage, it applies scripted file edits and returns scripted output, including scripted failures.
+  - **Agent**: given a stage, instructions, a workspace path, allowed tools and a budget, it returns the files changed, structured output, and token, cost and duration figures. The real adapter uses the Claude Agent SDK (model and effort per agent step from the settings, ADR 0024), with a `PreToolUse` hook that calls the policy check. The test adapter is a **scripted agent**: per stage, it applies scripted file edits and returns scripted output, including scripted failures.
   - **GitHub**: Issues, comments, labels, milestones, the board, PRs, check runs and merged state. The real adapter wraps the `gh` CLI. The test adapter is an **in-memory GitHub**.
   - Git itself is **not** faked. Tests use real git against a temporary repository with a local bare remote.
 - **Policy check.** A pure function: `(policies, proposed action) → allowed | blocked(reason)`, where an action is a tool call or a diff. `policies.yaml` has a schema. The hook (before) and the gates (after) both use this same function (ADR 0010).
@@ -154,7 +154,7 @@ The orchestrator is development-time tooling. It never deploys, and it never con
   - `max_parallel_lanes: 2`
   - `cost_cap_step_usd: 5`
   - `cost_cap_run_usd: 50`
-  - `model: claude-opus-5-5`
+  - `model: claude-sonnet-5-5`, `effort: medium`, and `stage_models` per agent step (requirements and design: `claude-opus-5-5`; document: `claude-haiku-4-5-20251001`), ADR 0024
 - **Repository layout.**
   - `orchestrator/`: code, tests, `policies.yaml`, `settings.yaml`, `README.md`
   - `delivery/runs/R-NNNN/`: `events.jsonl` and `report.md` (committed)
