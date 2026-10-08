@@ -79,6 +79,10 @@ flowchart LR
 
 How it works: the [Redirect and Click flows](docs/architecture.md#the-click-flow-clickstream) and [SQLite concurrency](docs/architecture.md#sqlite-concurrency-adr-0021) in the architecture, the [glossary](CONTEXT.md) terms *Click Recorder*, *Referrer Host*, *Agent Category* and *Device Class*, the settings and code tour in [onboarding](docs/onboarding.md), the test evidence in [plan 0001](docs/plans/0001-integration-testing.md#spec-0003-coverage), and the [roadmap](docs/roadmap.md) (R10: done, with its PRs).
 
+### In progress in Release 2 (roadmap R3, [spec 0004](docs/specs/0004-expiring-links.md))
+
+- **Expiring Links, through the API ([#97](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/97)):** `POST /links` takes an optional `expires_in_days`, a Lifetime of 1 to 365 whole days. The `201` always includes `expires_at`: the Expiry in ISO-8601 UTC (creation time plus the Lifetime in exact 24-hour days), or `null` for a Link created without a Lifetime, which never expires, as every existing Link does. From the exact instant of its Expiry, the Short URL answers `410 Gone` (`text/plain`, `Cache-Control: no-store`, body `This link has expired.`, no body for `HEAD`) instead of Redirecting, and records no Click. The Expired Link stays stored and its Short Code is never reused. An unknown Short Code is still `404`. Still to come in spec 0004: strict rejection of `expires_in_days` values that aren't whole numbers, and the web page's "Expires after (days)" field.
+
 ### Planned ([roadmap](docs/roadmap.md))
 
 | Release | Feature | Decided in |
@@ -151,8 +155,14 @@ Try it:
 ```bash
 curl -s -X POST localhost:8000/links -H 'content-type: application/json' \
      -d '{"url": "https://example.com/very/long"}'
-# {"short_code":"mFzrymu","short_url":"http://localhost:8000/mFzrymu","long_url":"https://example.com/very/long"}
+# {"short_code":"mFzrymu","short_url":"http://localhost:8000/mFzrymu","long_url":"https://example.com/very/long","expires_at":null}
 curl -si localhost:8000/mFzrymu    # 302, Location: https://example.com/very/long, Cache-Control: no-store
+
+curl -s -X POST localhost:8000/links -H 'content-type: application/json' \
+     -d '{"url": "https://example.com/offer", "expires_in_days": 30}'
+# {"short_code":"Qp7tZ2w","short_url":"http://localhost:8000/Qp7tZ2w","long_url":"https://example.com/offer",
+#  "expires_at":"2026-11-07T10:15:30.123Z"}
+# From expires_at on: 410 Gone, "This link has expired."
 
 curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"url": "ftp://example.com"}'
 # 422 {"detail":"Only http:// and https:// web addresses can be shortened.",
