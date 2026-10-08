@@ -5,6 +5,7 @@ All notable changes to the shortener are recorded here. The project follows [Sem
 ## [Unreleased]
 
 ### Added
+- Orchestrator: the agent model and effort are routed per agent step (Opus for requirements and design, Sonnet by default, Haiku for document, effort `medium`), and routing mistakes refuse to start a Run ([ADR 0024](docs/adr/0024-agent-model-and-effort-routed-per-step.md), #109, #110).
 - `scripts/orchestrator-demo.sh`: a complete scripted orchestrator Run with parallel Lanes, a retry, a rollback and a re-plan, with no API key or network; its output is kept in `delivery/demo/` (#84).
 
 ### Added (documentation only)

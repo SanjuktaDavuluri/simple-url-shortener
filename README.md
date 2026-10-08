@@ -130,6 +130,7 @@ Every significant decision is an ADR that lists the options weighed and why one 
 | [0018](docs/adr/0018-private-address-rule-without-dns.md) | Private-address Rule, checked as written, with no DNS lookup | Security |
 | [0019](docs/adr/0019-staged-evidence-triggered-scaling-path.md) | Staged scaling path, each stage triggered by measurements | Scalability |
 | [0020](docs/adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md) | Parallel Lanes: fan-out in the graph, waits held at the join | Delivery |
+| [0024](docs/adr/0024-agent-model-and-effort-routed-per-step.md) | Agent model and effort routed per agent step | Delivery |
 | [0021](docs/adr/0021-sqlite-wal-busy-timeout-and-small-connection-pool.md) | SQLite in WAL mode with a busy timeout and a pool of 4, so Redirects never wait behind Click writes | Storage |
 
 ## Quick start

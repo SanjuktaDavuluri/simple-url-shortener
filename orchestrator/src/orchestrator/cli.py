@@ -197,7 +197,11 @@ def _start(deps: Deps, workspace: Workspace, issue_number: int) -> int:
     except PolicyError as e:
         print(f"Refusing to start: {e}", file=sys.stderr)
         return USAGE_ERROR
-    settings = load_settings(deps.repo_root)
+    try:
+        settings = load_settings(deps.repo_root)
+    except ValueError as e:
+        print(f"Refusing to start: {e}", file=sys.stderr)
+        return USAGE_ERROR
     run = workspace.next_run_id()
     workspace.log(run).append(
         run=run,
