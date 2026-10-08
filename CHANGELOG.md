@@ -4,6 +4,9 @@ All notable changes to the shortener are recorded here. The project follows [Sem
 
 ## [Unreleased]
 
+### Added
+- `scripts/orchestrator-demo.sh`: a complete scripted orchestrator Run with parallel Lanes, a retry, a rollback and a re-plan, with no API key or network; its output is kept in `delivery/demo/` (#84).
+
 ### Added (documentation only)
 - Releases 2 and 3 designed: ADRs 0007–0019, a re-prioritised roadmap, a reviewer's guide in the README, and an [onboarding guide](docs/onboarding.md) (#23).
 - An [engineering summary](docs/summary.md): architecture, the orchestration model, three scenarios (greenfield, brownfield, ambiguous), testing, risks, assumptions and limitations, linked from the README (#72).

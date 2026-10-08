@@ -30,6 +30,17 @@ Each agent step is a fresh [Claude Agent SDK](https://code.claude.com/docs/en/ag
 - **Budget:** each step is capped at `cost_cap_step_usd`.
 - **Answer:** each step gives a structured answer (a JSON schema per Stage) and reports its tokens, cost and duration (`agent_call`). A step that ends without its answer is recorded and pauses the Run; `resume` retries it.
 
+## Demo without API spend
+
+`scripts/orchestrator-demo.sh` runs one complete, scripted Run in seconds, with no API key and no network (#84). The agent and GitHub are the test stand-ins; everything else is real: the `orchestrate` command, the graph, the gates, the policy check, git worktrees and the Event Log. The Run shows:
+- two Lanes fanning out in parallel, and a dependent Lane waiting at the join
+- a failing verify gate retried, then passing
+- a Lane that keeps failing, pausing, and being rolled back by a human
+- a human edit to the ticket breakdown, detected by `replan` and approved again
+- release readiness and close-out, finishing *partially delivered*, and `verify`
+
+It saves `events.jsonl`, `report.md` and `timeline.txt` to `delivery/demo/` (or the directory you pass). The committed copy there is its latest output. The scenario is `tests/test_demo_run.py`, so CI keeps it working.
+
 ## Live smoke run
 
 `scripts/orchestrator-smoke.sh start` opens a small, throwaway Issue and starts a real Run for it against the Claude API and GitHub. `scripts/orchestrator-smoke.sh next` continues after each of your checkpoints. Run it on demand, never in CI: it spends API credit and creates a real Issue, a ticket and PRs. Its report and Event Log are kept by the Run's close-out PR under `delivery/runs/`.

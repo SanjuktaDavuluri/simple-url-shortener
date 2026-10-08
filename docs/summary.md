@@ -182,7 +182,7 @@ The full worked case study, from a deliberately one-line "expiring links" reques
 - There are no load or failure-test results yet: R13 and R14 in Release 3.
 
 **Evidence:**
-- One orchestrated Run (R-0001) so far, so the metrics describe a single Run.
+- One live orchestrated Run (R-0001) so far, so the metrics describe a single Run. R-0001 had no rollback and no re-plan. Those paths are shown by the scripted demo Run (`scripts/orchestrator-demo.sh`, saved in [`delivery/demo/`](../delivery/demo/timeline.txt)), which runs the real graph, gates and Event Log with a scripted agent.
 - End-to-end latency is mostly human wait (9h total against 1h 43m excluding it). That is expected, because every checkpoint waits for a person.
 
 ## 8. Setup
@@ -196,4 +196,5 @@ In short:
 cd orchestrator && uv sync && uv run pytest         # orchestrator tests
 uv run orchestrate status                           # list Runs
 uv run orchestrate verify --all && uv run orchestrate metrics
+../scripts/orchestrator-demo.sh                     # a complete scripted Run: no API key, no network
 ```
