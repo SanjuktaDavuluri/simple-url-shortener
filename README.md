@@ -81,7 +81,8 @@ How it works: the [Redirect and Click flows](docs/architecture.md#the-click-flow
 
 ### In progress in Release 2 (roadmap R3, [spec 0004](docs/specs/0004-expiring-links.md))
 
-- **Expiring Links, through the API ([#97](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/97)):** `POST /links` takes an optional `expires_in_days`, a Lifetime of 1 to 365 whole days. The `201` always includes `expires_at`: the Expiry in ISO-8601 UTC (creation time plus the Lifetime in exact 24-hour days), or `null` for a Link created without a Lifetime, which never expires, as every existing Link does. From the exact instant of its Expiry, the Short URL answers `410 Gone` (`text/plain`, `Cache-Control: no-store`, body `This link has expired.`, no body for `HEAD`) instead of Redirecting, and records no Click. The Expired Link stays stored and its Short Code is never reused. An unknown Short Code is still `404`. Still to come in spec 0004: strict rejection of `expires_in_days` values that aren't whole numbers, and the web page's "Expires after (days)" field.
+- **Expiring Links, through the API ([#97](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/97)):** `POST /links` takes an optional `expires_in_days`, a Lifetime of 1 to 365 whole days. The `201` always includes `expires_at`: the Expiry in ISO-8601 UTC (creation time plus the Lifetime in exact 24-hour days), or `null` for a Link created without a Lifetime, which never expires, as every existing Link does. From the exact instant of its Expiry, the Short URL answers `410 Gone` (`text/plain`, `Cache-Control: no-store`, body `This link has expired.`, no body for `HEAD`) instead of Redirecting, and records no Click. The Expired Link stays stored and its Short Code is never reused. An unknown Short Code is still `404`.
+- **Invalid Lifetimes refused ([#98](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/98)):** an `expires_in_days` that is present and not `null` must be a JSON whole number from 1 to 365. Anything else (`0`, `366`, `1.5`, `"30"`, `true`, an object) is never coerced: it gets a `422` problem detail "expires_in_days must be a whole number of days from 1 to 365." and creates no Link. A request is checked in order: a `url` that is missing, `null` or not a JSON string is a malformed request (`422`, as before), then the Lifetime, then the URL Rules, so a Rule-breaking `url` with a valid or no Lifetime keeps its Rejection Reason. Still to come in spec 0004: the web page's "Expires after (days)" field.
 
 ### Planned ([roadmap](docs/roadmap.md))
 
@@ -163,6 +164,10 @@ curl -s -X POST localhost:8000/links -H 'content-type: application/json' \
 # {"short_code":"Qp7tZ2w","short_url":"http://localhost:8000/Qp7tZ2w","long_url":"https://example.com/offer",
 #  "expires_at":"2026-11-07T10:15:30.123Z"}
 # From expires_at on: 410 Gone, "This link has expired."
+
+curl -s -X POST localhost:8000/links -H 'content-type: application/json' \
+     -d '{"url": "https://example.com/offer", "expires_in_days": "30"}'
+# 422 {"detail":"expires_in_days must be a whole number of days from 1 to 365.", ...}; no Link is created
 
 curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"url": "ftp://example.com"}'
 # 422 {"detail":"Only http:// and https:// web addresses can be shortened.",
