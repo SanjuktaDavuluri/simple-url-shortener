@@ -147,15 +147,19 @@ label {
   font-weight: 600;
 }
 
-.field-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+.field + .field {
+  margin-top: var(--space-4);
 }
 
-input[name="url"] {
-  flex: 1 1 16rem;
-  min-width: 0;
+.hint {
+  margin: calc(-1 * var(--space-1)) 0 var(--space-2);
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+input {
+  display: block;
+  width: 100%;
   min-height: 2.75rem;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
@@ -165,9 +169,17 @@ input[name="url"] {
   font: inherit;
 }
 
-input[name="url"][aria-invalid="true"] {
+input[name="expires_in_days"] {
+  max-width: 9rem;
+}
+
+input[aria-invalid="true"] {
   border-color: var(--danger);
   border-width: 2px;
+}
+
+form > button[type="submit"] {
+  margin-top: var(--space-4);
 }
 
 button {
@@ -183,8 +195,8 @@ button {
 }
 
 @media (max-width: 30rem) {
-  .field-row button {
-    flex: 1 1 100%;
+  form > button[type="submit"] {
+    width: 100%;
   }
 }
 
@@ -229,6 +241,11 @@ button:hover {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
+}
+
+.expiry {
+  margin: var(--space-2) 0 0;
+  color: var(--muted);
 }
 
 .failure {

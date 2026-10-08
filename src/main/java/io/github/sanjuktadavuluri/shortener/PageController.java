@@ -1,6 +1,9 @@
 package io.github.sanjuktadavuluri.shortener;
 
 import jakarta.servlet.http.HttpServletResponse;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -24,6 +27,10 @@ class PageController {
   private static final String FULL_PAGE = "index";
   private static final String SHORTENER_FRAGMENT = "fragments/shortener :: shortener";
 
+  /** The Expiry as the result shows it, in UTC to the minute: "2026-11-07 10:15" (spec 0004). */
+  private static final DateTimeFormatter EXPIRY =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT).withZone(ZoneOffset.UTC);
+
   private final LinkService linkService;
 
   PageController(LinkService linkService) {
@@ -35,15 +42,29 @@ class PageController {
     return FULL_PAGE;
   }
 
+  /**
+   * Creates a Link from the form. A blank {@code expires_in_days} means no Lifetime; any other text
+   * must be a Lifetime, checked before the Rule Set as in the API (spec 0004). Every answer keeps
+   * what was typed in both fields.
+   */
   @PostMapping(path = "/", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
   String shorten(
       @RequestParam(name = "url", defaultValue = "") String longUrl,
+      @RequestParam(name = "expires_in_days", defaultValue = "") String expiresInDays,
       @RequestHeader(name = "HX-Request", defaultValue = "false") boolean viaHtmx,
       Model model,
       HttpServletResponse response) {
     model.addAttribute("longUrl", longUrl);
+    model.addAttribute("expiresInDays", expiresInDays);
     try {
-      model.addAttribute("link", linkService.create(longUrl, Optional.empty()));
+      Optional<Lifetime> lifetime =
+          expiresInDays.isBlank() ? Optional.empty() : Optional.of(Lifetime.parse(expiresInDays));
+      Link link = linkService.create(longUrl, lifetime);
+      model.addAttribute("link", link);
+      link.expiry().ifPresent(expiry -> model.addAttribute("expiry", EXPIRY.format(expiry)));
+    } catch (InvalidLifetimeException e) {
+      model.addAttribute("lifetimeError", Lifetime.INVALID);
+      response.setStatus(HttpStatus.UNPROCESSABLE_CONTENT.value());
     } catch (RejectedLongUrlException e) {
       model.addAttribute("rejectionReason", e.rejectionReason());
       response.setStatus(HttpStatus.UNPROCESSABLE_CONTENT.value());
