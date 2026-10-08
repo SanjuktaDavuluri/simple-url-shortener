@@ -101,6 +101,13 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #50 | Every pooled connection runs in WAL mode with a 5000 ms busy timeout; the pool holds 4 connections (ADR 0021) | `SqliteConcurrencyIT` → `thePoolHoldsFourConnectionsEachInWalModeWithAFiveSecondBusyTimeout` | ☑ #50 |
 | #50 | A Release 1 database (rollback journal, with Links) comes up in WAL mode and still Redirects its Links | `SqliteConcurrencyIT` → `aRelease1DatabaseComesUpInWalModeAndStillRedirectsItsLinks` | ☑ #50 |
 | #50 | The existing suite, including the Flyway clean + migrate reset, passes unchanged with WAL on | Whole `./mvnw verify` suite (every `*IT` resets through `IntegrationTest`) | ☑ #50 |
+| #51 | **Unit (spec 0003 seam 2):** Referrer Host is the lower-case host without port, user info, path or query | `ClickClassifierTest` → `theReferrerHostIsTheLowerCaseHostWithoutPortUserInfoPathOrQuery` | ☐ #51 |
+| #51 | **Unit:** a missing, malformed or non-`http(s)` Referer (e.g. `android-app:`, `ftp:`) gives no Referrer Host | `ClickClassifierTest` → `aMissingRefererGivesNoReferrerHost`, `aMalformedRefererGivesNoReferrerHost`, `aRefererThatIsNotAnHttpOrHttpsUrlGivesNoReferrerHost` | ☐ #51 |
+| #51 | **Unit:** Googlebot, Bingbot, Slackbot, Twitterbot, facebookexternalhit, WhatsApp and Discordbot are bots | `ClickClassifierTest` → `knownCrawlersAndLinkPreviewFetchersAreBotsOnDesktop` | ☐ #51 |
+| #51 | **Unit:** the bot pattern list is kept in one place, matched case-insensitively, with its own tests | `BotPatternsTest` (4 tests) | ☐ #51 |
+| #51 | **Unit:** a crawler whose user agent starts with `Mozilla/` is still a bot (bot before browser) | `ClickClassifierTest` → `aBotWhoseUserAgentStartsWithMozillaIsStillABot` | ☐ #51 |
+| #51 | **Unit:** Chrome and Firefox on desktop are browser/desktop; Safari on iPhone and Chrome on Android are browser/mobile | `ClickClassifierTest` → `desktopBrowsersAreBrowserAgentsOnDesktop`, `mobileBrowsersAreBrowserAgentsOnMobile`, `theDeviceClassIsMobileOnlyWithAMobileMarker` | ☐ #51 |
+| #51 | **Unit:** `curl`, `wget`, `python-requests` and an empty or missing user agent are other/desktop | `ClickClassifierTest` → `toolsAndAMissingUserAgentAreOtherAgentsOnDesktop` | ☐ #51 |
 
 Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 
