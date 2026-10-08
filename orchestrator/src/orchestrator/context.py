@@ -3,7 +3,7 @@
 from dataclasses import dataclass, replace
 from typing import Any
 
-from orchestrator.agent import Agent, StepRequest, StepResult
+from orchestrator.agent import Agent, AgentFailed, StepRequest, StepResult
 from orchestrator.events import EventLog
 from orchestrator.github import Comment, GitHub
 from orchestrator.policies import Decision, Policies, ToolCall, decide
@@ -65,6 +65,20 @@ class RunContext:
         flag.parent.mkdir(parents=True, exist_ok=True)
         flag.write_text(reason)
 
+    def _record_call(self, stage: str, result: StepResult) -> None:
+        self.event(
+            "agent_call",
+            stage=stage,
+            actor="agent",
+            data={
+                "model": result.model or self.settings.model,
+                "input_tokens": result.input_tokens,
+                "output_tokens": result.output_tokens,
+                "cost_usd": result.cost_usd,
+                "duration_ms": result.duration_ms,
+            },
+        )
+
     def check_boundary(self, stage: str | None) -> None:
         """Between steps: honour a requested Safe-stop or a `stop` label on the Issue."""
         flag = self.workspace.stop_flag(self.run)
@@ -85,9 +99,7 @@ class RunContext:
                 request.stage, f"the Run reached its cost cap (${spent:.2f} of ${cap:.2f})"
             )
         if self.agent is None:
-            raise RuntimeError(
-                "No agent is configured; the Claude Agent SDK adapter arrives with #35"
-            )
+            raise RuntimeError("No agent is configured")
         blocked: list[Decision] = []
 
         def guard(call: ToolCall) -> Decision:
@@ -101,19 +113,12 @@ class RunContext:
                 )
             return decision
 
-        result = self.agent.run(replace(request, guard=guard))
-        self.event(
-            "agent_call",
-            stage=request.stage,
-            actor="agent",
-            data={
-                "model": result.model or self.settings.model,
-                "input_tokens": result.input_tokens,
-                "output_tokens": result.output_tokens,
-                "cost_usd": result.cost_usd,
-                "duration_ms": result.duration_ms,
-            },
-        )
+        try:
+            result = self.agent.run(replace(request, guard=guard, model=self.settings.model))
+        except AgentFailed as failed:
+            self._record_call(request.stage, failed.spent)
+            raise RunPaused(request.stage, failed.reason) from failed
+        self._record_call(request.stage, result)
         step_cap = self.settings.cost_cap_step_usd
         if result.cost_usd > step_cap:
             self.event(

@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: implemented
 date: 2026-10-07
 release: 2
 roadmap: R18
