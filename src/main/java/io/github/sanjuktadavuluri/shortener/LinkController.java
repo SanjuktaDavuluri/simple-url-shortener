@@ -29,7 +29,12 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
-/** The JSON API: create a Link, and follow a Short URL. */
+/**
+ * The JSON API: create a Link, and follow a Short URL.
+ *
+ * <p>The create response is the only place a Link's Manage Token is ever shown, so it is sent with
+ * {@code Cache-Control: no-store} and the token is never logged (spec 0005, ADR 0014).
+ */
 @RestController
 class LinkController {
 
@@ -65,16 +70,18 @@ class LinkController {
    */
   @PostMapping("/links")
   @ResponseStatus(HttpStatus.CREATED)
-  CreatedLink createLink(@RequestBody CreateLinkRequest request) {
+  CreatedLink createLink(@RequestBody CreateLinkRequest request, HttpServletResponse response) {
     if (request.url() == null || !request.url().isString()) {
       throw new MalformedRequestException();
     }
     Optional<Lifetime> lifetime = lifetimeOf(request.expiresInDays());
     Link link = linkService.create(request.url().stringValue(), lifetime);
+    response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
     return new CreatedLink(
         link.shortCode(),
         link.shortUrl(),
         link.longUrl(),
+        link.manageToken(),
         link.expiry().map(Instant::toString).orElse(null));
   }
 
@@ -195,7 +202,16 @@ class LinkController {
       @JsonProperty("short_code") String shortCode,
       @JsonProperty("short_url") String shortUrl,
       @JsonProperty("long_url") String longUrl,
-      @JsonProperty("expires_at") String expiresAt) {}
+      @JsonProperty("manage_token") String manageToken,
+      @JsonProperty("expires_at") String expiresAt) {
+
+    /** Leaves the Manage Token out, so it can't reach a log line (spec 0005, story 21). */
+    @Override
+    public String toString() {
+      return "CreatedLink[shortCode=%s, shortUrl=%s, longUrl=%s, expiresAt=%s]"
+          .formatted(shortCode, shortUrl, longUrl, expiresAt);
+    }
+  }
 
   private static final class MalformedRequestException extends RuntimeException {
     private static final long serialVersionUID = 1L;

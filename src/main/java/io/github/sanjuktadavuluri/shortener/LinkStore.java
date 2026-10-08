@@ -7,11 +7,12 @@ import java.util.Optional;
 public interface LinkStore {
 
   /**
-   * Saves a Link pairing the Short Code with the Long URL, and its Expiry if it has one.
+   * Saves a Link pairing the Short Code with the Long URL, with the hash of its Manage Token (never
+   * the token itself: ADR 0023), and its Expiry if it has one.
    *
    * @throws ShortCodeTakenException if the Short Code already names a Link, Expired or not
    */
-  void save(String shortCode, String longUrl, Optional<Instant> expiry);
+  void save(String shortCode, String longUrl, String manageTokenHash, Optional<Instant> expiry);
 
   /**
    * Returns the Long URL and Expiry of the Link with this Short Code, if there is one: the Redirect
