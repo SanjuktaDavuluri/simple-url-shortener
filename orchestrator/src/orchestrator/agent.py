@@ -14,6 +14,7 @@ class StepRequest:
     stage: str
     instructions: str
     workspace: Path
+    context: dict[str, Any] = field(default_factory=dict)
     allowed_tools: tuple[str, ...] = ()
     budget_usd: float = 0.0
 

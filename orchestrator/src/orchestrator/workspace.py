@@ -17,6 +17,7 @@ class Workspace:
         self.state_dir = repo_root / ".orchestrator"
         self.local_runs = self.state_dir / "runs"
         self.committed_runs = repo_root / "delivery" / "runs"
+        self.worktrees = self.state_dir / "worktrees"
 
     def run_ids(self) -> list[str]:
         ids: set[str] = set()
