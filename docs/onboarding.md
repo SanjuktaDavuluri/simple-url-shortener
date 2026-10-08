@@ -97,6 +97,20 @@ Deferred ideas are never dropped silently: they go into [`docs/roadmap.md`](road
 - **Secrets:** never in the repository, URLs or logs.
 - **The maintainer's local service on :8000** may be in use. Run your own copy on another port and data directory instead of restarting it.
 
-## 7. The delivery orchestrator (from Release 2)
+## 7. Repository setup, and how it came to be
+
+- **Hosting.** [SanjuktaDavuluri/simple-url-shortener](https://github.com/SanjuktaDavuluri/simple-url-shortener) is public, with Issues, PRs, milestones per Release and the [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1). The repository was created on 2026-10-07, before Release 1's implementation, so tickets exist before their code. The first commit is the design docs, made before any code.
+- **Branch protection on `main`.**
+  - Three required checks: **Verify**, **Browser checks** and **Orchestrator** (the last added with #26).
+  - A PR is required, with 0 approvals: it's a solo project, and you can't approve your own PR.
+  - Conversations must be resolved.
+  - Admins are included.
+  - Force-pushes and deletion are blocked.
+
+  Renaming a CI job breaks its required check, so update the protection in the same PR.
+- **The local guard.** A versioned `pre-push` hook in `.githooks/` refuses pushes to `main` before they reach GitHub. Enable it once per clone with `git config core.hooksPath .githooks`.
+- **History.** Branch protection returned 403 while the repository was private on a free plan. The repository was rebuilt with a no-reply commit email, then made public so GitHub could enforce protection.
+
+## 8. The delivery orchestrator (from Release 2)
 
 The orchestrator automates the chain in section 5 under human control. It's a separate, development-time tool: it ends at a PR that's ready to merge, never deploys, and never connects to a running service. The design is in [ADRs 0007–0011](adr/0007-delivery-orchestrator.md). Usage instructions will be added here when it's built.
