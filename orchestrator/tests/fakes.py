@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from itertools import count
 
 from orchestrator.agent import StepRequest, StepResult
-from orchestrator.github import Comment, Issue, IssueNotFound, LabelEvent
+from orchestrator.github import Check, Comment, Issue, IssueNotFound, LabelEvent, PullRequest
 
 _clock = count(1)
 
@@ -35,6 +35,9 @@ class InMemoryGitHub:
     issue_meta: dict[int, dict[str, object]] = field(default_factory=dict)
     blocked_by: dict[int, list[int]] = field(default_factory=dict)
     board: dict[int, dict[str, str]] = field(default_factory=dict)
+    prs: dict[int, PullRequest] = field(default_factory=dict)
+    checks: dict[tuple[int, str], list[Check]] = field(default_factory=dict)
+    default_checks: tuple[Check, ...] = (Check("Verify", "success", ""),)
     _ids: Iterator[int] = field(default_factory=lambda: count(1000))
     _numbers: Iterator[int] = field(default_factory=lambda: count(100))
 
@@ -93,6 +96,34 @@ class InMemoryGitHub:
 
     def add_to_board(self, issue: int, fields: dict[str, str]) -> None:
         self.board[issue] = dict(fields)
+
+    def create_pr(self, head: str, base: str, title: str, body: str) -> int:
+        number = next(self._numbers)
+        self.prs[number] = PullRequest(number, head, base, title, body)
+        return number
+
+    def pr(self, number: int) -> PullRequest:
+        return self.prs[number]
+
+    def pr_checks(self, number: int, sha: str) -> list[Check]:
+        return list(self.checks.get((number, sha), self.default_checks))
+
+    def set_checks(self, number: int, sha: str, *checks: Check) -> None:
+        """Checks are per commit, as on GitHub: a new push starts with the default checks."""
+        self.checks[(number, sha)] = list(checks)
+
+    def record_merge(self, number: int, by: str, commits: list[str]) -> None:
+        pr = self.prs[number]
+        self.prs[number] = PullRequest(
+            pr.number, pr.head, pr.base, pr.title, pr.body, "merged", by, tuple(commits)
+        )
+
+    def close_pr(self, number: int) -> None:
+        pr = self.prs[number]
+        self.prs[number] = PullRequest(pr.number, pr.head, pr.base, pr.title, pr.body, "closed")
+
+    def pr_for_head(self, head: str) -> int:
+        return next(n for n, pr in self.prs.items() if pr.head == head)
 
 
 Scripted = StepResult | Callable[[StepRequest], StepResult]

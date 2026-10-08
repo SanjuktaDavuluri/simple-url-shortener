@@ -3,7 +3,7 @@
 The **delivery plane** of this repository: a development-time command-line tool that drives a GitHub Issue through gated Stages to merge-ready pull requests, under human control. It never deploys, and it never connects to a running service (ADR 0007).
 
 - **Spec:** [0002](../docs/specs/0002-delivery-orchestrator.md) · **Decisions:** ADRs [0007](../docs/adr/0007-delivery-orchestrator.md)–[0011](../docs/adr/0011-orchestrator-replanning-and-lineage.md) · **Vocabulary:** the Delivery section of [`CONTEXT.md`](../CONTEXT.md)
-- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28). Lanes and the rest arrive with tickets #29–#35 (Release 2).
+- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28), and **lanes → release readiness → close-out** for tickets one at a time (#29). Parallel Lanes, failure handling, guardrails, Re-plan, metrics and the real agent arrive with #30–#35 (Release 2).
 
 ## Setup
 
@@ -44,7 +44,13 @@ Run it from anywhere inside the repository; it finds the repository root with gi
 | design | ADRs at `docs/adr/NNNN-<slug>.md` (`status: proposed`), or "no ADR" with a reason | Options table with gains and costs, exactly one **Chosen**, Rejected alternatives, Consequences, a number not used on `main`; accepted ADRs never change | `adr-NNNN`, one per ADR; approval marks it `accepted` |
 | decompose | `delivery/runs/R-NNNN/tickets.json`: vertical slices with blocking edges | At least one ticket; unique keys; acceptance criteria; a known kind; blockers that exist; no cycles | `tickets`; approval publishes the Issues blockers first, with `ready-for-agent`, the Release milestone, the board entry and native "blocked by" links |
 
+| lanes | First a PR that takes the Run's documents to `main`; then, per ticket, `feat/<issue>-<slug>` in its own worktree: **implement** → **document** → **PR** (`Closes #<issue>`) | implement: `verify_command` passes in the worktree, plus browser checks against a **temporary instance** when web paths changed; PR: every required check on the pushed commit is green (a failure goes back to implement with the check output) | `merge:<pr>`: a human merges on GitHub; the orchestrator never merges |
+| release readiness | — | Every PR merged; every Lane PR says `Closes #<issue>`; every commit references its ticket; every approval has an approver | — |
+| close-out | `delivery/runs/R-NNNN/report.md` and `events.jsonl`, spec marked `implemented`, in one PR | — | that PR's merge |
+
 A failing gate goes back to the agent with its problems, up to `max_retries` times; then the Stage fails and the Run pauses. A rejection goes back with its reason, and the revision needs a fresh approval.
+
+**Temporary instances.** A check that needs a running app starts it from the Lane's worktree with `app_start_command` on a free port and a fresh `DATA_DIR`, runs `browser_check_command` against `BASE_URL`, then always runs `app_stop_command` and deletes the data directory. Your own service (for example on :8000) is never touched. The commands are settings, so tests replace them with probes.
 
 ## Where things are kept
 
@@ -52,7 +58,7 @@ A failing gate goes back to the agent with its problems, up to `max_retries` tim
 |---|---|---|
 | Run state (LangGraph checkpoints), in-progress Event Logs and Run worktrees | `.orchestrator/` at the repository root | No (gitignored) |
 | Finished Runs' Event Logs and reports | `delivery/runs/R-NNNN/` | Yes, through each Run's close-out PR (from #29) |
-| Settings: retries, parallel Lanes, cost caps, model, delivery board | [`settings.yaml`](settings.yaml) | Yes; protected by `CODEOWNERS` |
+| Settings: retries, parallel Lanes, cost caps, model, delivery board, Exit Gate commands | [`settings.yaml`](settings.yaml) | Yes; protected by `CODEOWNERS` |
 
 Every event has `schema_version`, `seq`, `ts`, `run`, `actor`, `stage`, `type`, `data`, `prev_hash` and its own `hash` (SHA-256 of the event without `hash`).
 

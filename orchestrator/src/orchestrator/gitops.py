@@ -1,5 +1,6 @@
-"""Git operations for a Run: its own worktree and branch, never the engineer's checkout or main."""
+"""Git operations for a Run: its own worktrees and branches, never the engineer's checkout."""
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -15,9 +16,14 @@ def run_branch(run: str) -> str:
     return f"docs/run-{run}"
 
 
-def ensure_run_worktree(workspace: Workspace, run: str) -> Path:
-    """The Run's spec and ADRs are written on `docs/run-R-NNNN`, branched from origin/main."""
-    path = workspace.worktrees / run
+def lane_branch(issue: int, title: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:48].rstrip("-")
+    return f"feat/{issue}-{slug}"
+
+
+def worktree(workspace: Workspace, name: str, branch: str) -> Path:
+    """A worktree on `branch`, created from the latest origin/main the first time it is needed."""
+    path = workspace.worktrees / name
     if not path.exists():
         _git(workspace.repo_root, "fetch", "--quiet", "origin", "main")
         _git(
@@ -26,11 +32,16 @@ def ensure_run_worktree(workspace: Workspace, run: str) -> Path:
             "add",
             "--quiet",
             "-b",
-            run_branch(run),
+            branch,
             str(path),
             "origin/main",
         )
     return path
+
+
+def ensure_run_worktree(workspace: Workspace, run: str) -> Path:
+    """The Run's spec and ADRs are written on `docs/run-R-NNNN`, branched from origin/main."""
+    return worktree(workspace, run, run_branch(run))
 
 
 def exists_on_main(workspace: Workspace, path: str) -> bool:
@@ -52,8 +63,28 @@ def files_on_main(workspace: Workspace, directory: str) -> list[str]:
     return listing.stdout.split()
 
 
-def commit_and_push(worktree: Path, run: str, paths: list[str], message: str) -> None:
-    _git(worktree, "add", "--", *paths)
-    if _git(worktree, "status", "--porcelain", "--", *paths).strip():
-        _git(worktree, "commit", "--quiet", "-m", message)
-    _git(worktree, "push", "--quiet", "-u", "origin", run_branch(run))
+def commit_all(tree: Path, message: str) -> bool:
+    """Commit everything changed in the worktree; False when there was nothing to commit."""
+    _git(tree, "add", "-A")
+    if not _git(tree, "status", "--porcelain").strip():
+        return False
+    _git(tree, "commit", "--quiet", "-m", message)
+    return True
+
+
+def changed_since_main(tree: Path) -> list[str]:
+    _git(tree, "fetch", "--quiet", "origin", "main")
+    return _git(tree, "diff", "--name-only", "origin/main...HEAD").split()
+
+
+def push(tree: Path, branch: str) -> str:
+    """Push the branch; returns the pushed commit."""
+    _git(tree, "push", "--quiet", "-u", "origin", branch)
+    return _git(tree, "rev-parse", "HEAD").strip()
+
+
+def commit_and_push(tree: Path, run: str, paths: list[str], message: str) -> None:
+    _git(tree, "add", "--", *paths)
+    if _git(tree, "status", "--porcelain", "--", *paths).strip():
+        _git(tree, "commit", "--quiet", "-m", message)
+    push(tree, run_branch(run))

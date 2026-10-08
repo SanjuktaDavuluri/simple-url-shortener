@@ -219,6 +219,11 @@ def test_run_records_the_settings_it_used(
         "model": "claude-opus-5-5",
         "board_owner": "",
         "board_number": 0,
+        "verify_command": "./mvnw -B -q verify",
+        "web_paths": "src/main/resources/templates/,src/main/resources/static/",
+        "app_start_command": "scripts/local.sh start",
+        "app_stop_command": "scripts/local.sh stop",
+        "browser_check_command": "cd e2e && npm ci --silent && npm run browser-checks",
     }
 
 

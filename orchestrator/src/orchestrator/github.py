@@ -31,6 +31,25 @@ class LabelEvent:
     created_at: str
 
 
+@dataclass(frozen=True)
+class Check:
+    name: str
+    state: str  # "pending" | "success" | "failure"
+    details: str = ""
+
+
+@dataclass(frozen=True)
+class PullRequest:
+    number: int
+    head: str
+    base: str
+    title: str
+    body: str
+    state: str = "open"  # "open" | "merged" | "closed"
+    merged_by: str | None = None
+    commits: tuple[str, ...] = ()  # commit subjects
+
+
 class IssueNotFound(Exception):
     def __init__(self, number: int) -> None:
         super().__init__(f"Issue #{number} was not found")
@@ -51,6 +70,9 @@ class GitHub(Protocol):
     ) -> int: ...
     def add_blocked_by(self, issue: int, blocker: int) -> None: ...
     def add_to_board(self, issue: int, fields: dict[str, str]) -> None: ...
+    def create_pr(self, head: str, base: str, title: str, body: str) -> int: ...
+    def pr(self, number: int) -> PullRequest: ...
+    def pr_checks(self, number: int, sha: str) -> list[Check]: ...
 
 
 class GhCliGitHub:
@@ -190,3 +212,50 @@ class GhCliGitHub:
                     "--single-select-option-id",
                     option["id"],
                 )
+
+    def create_pr(self, head: str, base: str, title: str, body: str) -> int:
+        url = self._gh(
+            "pr", "create", "--head", head, "--base", base, "--title", title, "--body", body
+        ).strip()
+        return int(url.rsplit("/", 1)[1])
+
+    def pr(self, number: int) -> PullRequest:
+        data = json.loads(
+            self._gh(
+                "pr",
+                "view",
+                str(number),
+                "--json",
+                "number,headRefName,baseRefName,title,body,state,mergedBy,commits",
+            )
+        )
+        state = {"MERGED": "merged", "CLOSED": "closed"}.get(data["state"], "open")
+        return PullRequest(
+            number=data["number"],
+            head=data["headRefName"],
+            base=data["baseRefName"],
+            title=data["title"],
+            body=data["body"] or "",
+            state=state,
+            merged_by=(data.get("mergedBy") or {}).get("login"),
+            commits=tuple(c["messageHeadline"] for c in data["commits"]),
+        )
+
+    def pr_checks(self, number: int, sha: str) -> list[Check]:
+        """Required checks for the PR's head, which must be `sha`; otherwise they are pending."""
+        head = self._gh("pr", "view", str(number), "--json", "headRefOid", "-q", ".headRefOid")
+        if head.strip() != sha:
+            return [Check("head", "pending", f"waiting for {sha[:12]} to reach the PR")]
+        result = subprocess.run(
+            ["gh", "pr", "checks", str(number), "--required", "--json", "name,bucket,link"],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if not result.stdout.strip():
+            return []
+        buckets = {"pass": "success", "fail": "failure", "cancel": "failure"}
+        return [
+            Check(c["name"], buckets.get(c["bucket"], "pending"), c.get("link", ""))
+            for c in json.loads(result.stdout)
+        ]

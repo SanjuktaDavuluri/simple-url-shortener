@@ -10,8 +10,9 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
-from orchestrator import decompose, design, requirements
+from orchestrator import decompose, design, lanes, requirements
 from orchestrator.approvals import AwaitApproval, RequestApproval
+from orchestrator.closeout import CloseOut, ReleaseReadiness
 from orchestrator.context import RunContext
 from orchestrator.stages import Intake
 from orchestrator.state import RunState
@@ -124,7 +125,77 @@ def build(ctx: RunContext, checkpointer: SqliteSaver) -> Graph:
         decompose.after_decided,
         {"publish": "decompose_publish", "draft": "decompose_draft"},
     )
-    g.add_edge("decompose_publish", END)  # Lanes arrive with #29
+    g.add_edge("decompose_publish", "lanes")
+
+    # lanes: the Run's documents reach main first, then each ticket in dependency order
+    g.add_node("lanes", lanes.Begin(ctx))
+    g.add_node("docs_checks", lanes.AwaitChecks(ctx, lanes.docs_pr, lanes.docs_sha))
+    g.add_node("docs_checks_failed", lanes.DocsChecksFailed(ctx))
+    g.add_node("docs_request_merge", lanes.RequestMerge(ctx, lanes.docs_pr))
+    g.add_node("docs_await_merge", lanes.AwaitMerge(ctx, lanes.docs_pr))
+    g.add_node("lane_begin", lanes.LaneBegin(ctx))
+    g.add_node("implement", lanes.Implement(ctx))
+    g.add_node("document", lanes.Document(ctx))
+    g.add_node("open_pr", lanes.OpenPr(ctx))
+    g.add_node("lane_checks", lanes.AwaitChecks(ctx, lanes.lane_pr, lanes.lane_sha))
+    g.add_node("ci_failed", lanes.CiFailed(ctx))
+    g.add_node("lane_request_merge", lanes.RequestMerge(ctx, lanes.lane_pr))
+    g.add_node("lane_await_merge", lanes.AwaitMerge(ctx, lanes.lane_pr))
+    g.add_node("lane_merged", lanes.LaneMerged(ctx))
+    g.add_edge("lanes", "docs_checks")
+    g.add_conditional_edges(
+        "docs_checks",
+        lanes.after_docs_checks,
+        {
+            "recheck": "docs_checks",
+            "request_merge": "docs_request_merge",
+            "stop": "docs_checks_failed",
+        },
+    )
+    g.add_edge("docs_checks_failed", END)
+    g.add_edge("docs_request_merge", "docs_await_merge")
+    g.add_conditional_edges(
+        "docs_await_merge",
+        lanes.after_merge,
+        {"recheck": "docs_await_merge", "next": "lane_begin", "stop": END},
+    )
+    g.add_edge("lane_begin", "implement")
+    g.add_conditional_edges(
+        "implement",
+        lanes.after_implement,
+        {"document": "document", "implement": "implement", "stop": END},
+    )
+    g.add_edge("document", "open_pr")
+    g.add_edge("open_pr", "lane_checks")
+    g.add_conditional_edges(
+        "lane_checks",
+        lanes.after_lane_checks,
+        {"recheck": "lane_checks", "request_merge": "lane_request_merge", "failed": "ci_failed"},
+    )
+    g.add_conditional_edges(
+        "ci_failed", lanes.after_ci_failed, {"implement": "implement", "stop": END}
+    )
+    g.add_edge("lane_request_merge", "lane_await_merge")
+    g.add_conditional_edges(
+        "lane_await_merge",
+        lanes.after_merge,
+        {"recheck": "lane_await_merge", "next": "lane_merged", "stop": END},
+    )
+    g.add_conditional_edges(
+        "lane_merged",
+        lanes.after_lane,
+        {"next_lane": "lane_begin", "readiness": "release_readiness"},
+    )
+
+    # release readiness and close-out
+    g.add_node("release_readiness", ReleaseReadiness(ctx))
+    g.add_node("close_out", CloseOut(ctx))
+    g.add_conditional_edges(
+        "release_readiness",
+        lambda state: "stop" if state.get("paused") else "close_out",
+        {"stop": END, "close_out": "close_out"},
+    )
+    g.add_edge("close_out", END)
     return g.compile(checkpointer=checkpointer)
 
 
@@ -136,7 +207,7 @@ def open_graph(ctx: RunContext) -> Iterator[Graph]:
 
 
 def _config(ctx: RunContext) -> Any:
-    return {"configurable": {"thread_id": ctx.run}}
+    return {"configurable": {"thread_id": ctx.run}, "recursion_limit": 10_000}
 
 
 def start(ctx: RunContext) -> None:

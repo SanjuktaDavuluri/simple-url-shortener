@@ -16,6 +16,12 @@ class Settings:
     model: str = "claude-opus-5-5"
     board_owner: str = ""
     board_number: int = 0
+    # Exit Gate commands, run inside a Lane's worktree (never the engineer's checkout)
+    verify_command: str = "./mvnw -B -q verify"
+    web_paths: str = "src/main/resources/templates/,src/main/resources/static/"
+    app_start_command: str = "scripts/local.sh start"
+    app_stop_command: str = "scripts/local.sh stop"
+    browser_check_command: str = "cd e2e && npm ci --silent && npm run browser-checks"
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)

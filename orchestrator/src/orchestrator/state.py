@@ -29,3 +29,12 @@ class RunState(TypedDict, total=False):
     tickets: list[dict[str, Any]]
     tickets_hash: str
     published: dict[str, int]
+    # lanes
+    docs_pr: int
+    docs_sha: str
+    lanes: list[dict[str, Any]]
+    lane_index: int
+    ci: str
+    ci_output: str
+    merge: str
+    close_out_pr: int
