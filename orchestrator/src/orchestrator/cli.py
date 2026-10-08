@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from orchestrator import graph
+from orchestrator import graph, metrics
 from orchestrator.agent import Agent
 from orchestrator.context import RunContext, marker
 from orchestrator.events import verify
@@ -67,6 +67,9 @@ def _parser() -> argparse.ArgumentParser:
         "replan", help="check a Run's approved inputs for changes, and re-plan what depends on them"
     )
     replan.add_argument("run")
+    commands.add_parser(
+        "metrics", help="regenerate delivery/metrics.md from every committed Event Log"
+    )
     check = commands.add_parser("verify", help="check that Event Logs are intact")
     target = check.add_mutually_exclusive_group(required=True)
     target.add_argument("run", nargs="?", help="a Run ID such as R-0001")
@@ -407,6 +410,16 @@ def _verify(workspace: Workspace, run: str | None) -> int:
     return 1 if broken else 0
 
 
+def _metrics(repo_root: Path) -> int:
+    collected = metrics.regenerate(repo_root)
+    for run, why in collected.ignored.items():
+        print(f"Ignored {run}: {why}")
+    for name, value in metrics.summary(collected) if collected.runs else []:
+        print(f"{name}: {value}")
+    print(f"Wrote delivery/metrics.md ({len(collected.runs)} finished Runs)")
+    return 0
+
+
 def _real_deps() -> Deps:
     top = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
@@ -429,6 +442,8 @@ def main(argv: Sequence[str] | None = None, *, deps: Deps | None = None) -> int:
         return _status(workspace, args.run)
     if args.command == "verify":
         return _verify(workspace, None if args.all else args.run)
+    if args.command == "metrics":
+        return _metrics(deps.repo_root)
     if not workspace.exists(args.run):
         print(f"Run {args.run} was not found", file=sys.stderr)
         return USAGE_ERROR

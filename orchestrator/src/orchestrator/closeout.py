@@ -9,6 +9,7 @@ import shutil
 from collections import Counter
 from typing import Any
 
+from orchestrator import metrics
 from orchestrator.context import RunContext
 from orchestrator.gitops import commit_all, push, worktree
 from orchestrator.state import RunState
@@ -186,6 +187,7 @@ class CloseOut:
         target.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ctx.log.path, target / "events.jsonl")
         (target / "report.md").write_text(report(ctx.run, ctx.log.read()))
+        metrics.regenerate(tree)  # the committed Runs on main, plus this one
         commit_all(
             tree, f"docs: close out {ctx.run}: report, Event Log, spec implemented (#{ctx.issue})"
         )
@@ -195,7 +197,8 @@ class CloseOut:
             "main",
             f"docs: close out {ctx.run} (#{ctx.issue})",
             f"Run {ctx.run} for #{ctx.issue} is finished. This commits its report and Event Log "
-            f"under `delivery/runs/{ctx.run}/` and marks the spec implemented.",
+            f"under `delivery/runs/{ctx.run}/`, regenerates `delivery/metrics.md` and marks the "
+            "spec implemented.",
         )
         ctx.mirror(f"🏁 Run finished. Close-out PR #{pr}: report, Event Log and spec status.")
         return {"close_out_pr": pr}

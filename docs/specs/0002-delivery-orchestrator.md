@@ -140,12 +140,13 @@ The orchestrator is development-time tooling. It never deploys, and it never con
 - **Policy check.** A pure function: `(policies, proposed action) → allowed | blocked(reason)`, where an action is a tool call or a diff. `policies.yaml` has a schema. The hook (before) and the gates (after) both use this same function (ADR 0010).
 - **Event log.** Each event has `schema_version`, `seq`, `ts`, `run`, `actor`, `stage`, `type`, `data`, `prev_hash` and its own `hash` (SHA-256 of the event without `hash`; this also detects an edit to the last event), written as JSON lines. Event types: `run_started`, `stage_started`, `stage_passed`, `stage_failed`, `gate_result`, `retry`, `paused`, `resumed`, `approval_requested`, `approved`, `rejected`, `agent_call`, `policy_blocked`, `lane_rolled_back`, `replanned`, `invalidated`, `safe_stop`, `run_finished`; added while building: `lane_started`, `lane_finished`, `lane_skipped`, `approval_withdrawn`, `amendment_raised`, `amendment_pr_opened` and `follow_up_created`. Secrets are scanned before writing (ADR 0009).
 - **Metrics definitions:**
-  - **success rate:** runs that finished close-out ÷ runs that ended
-  - **retry frequency:** retries ÷ stage executions
-  - **rollback frequency:** rolled-back lanes ÷ lanes
-  - **MTTR:** the mean time from a failed gate to the next passing gate of the same stage
-  - **end-to-end latency:** from `run_started` to `run_finished`, reported in total and with time spent awaiting humans excluded
+  - **success rate:** runs that finished close-out ÷ runs that ended. In practice, committed logs exist only for runs that finished, so "finished close-out" means fully delivered (`run_finished` outcome `delivered`, not `partially delivered`)
+  - **retry frequency:** retries ÷ stage executions (`stage_started` events, one per lane for lane stages)
+  - **rollback frequency:** rolled-back lanes ÷ lanes (`lane_started`)
+  - **MTTR:** the mean time from a failed gate to the next passing gate of the same stage, and of the same lane (`gate_result` carries the lane key), since lanes run in parallel
+  - **end-to-end latency:** from `run_started` to `run_finished`, reported in total and with time spent awaiting humans excluded. Awaiting humans means open approvals, open questions, pauses (ended by `resumed` or the lane's rollback) and Safe-stops. These can overlap across parallel lanes, so their union is subtracted
   - **cost per run:** the sum of the run's `agent_call` costs
+  - Logs that fail `orchestrate verify` are not counted and are listed as such. Unfinished runs are listed but not counted
 - **Temporary service instances.** Validation that needs a running app builds it from the lane's worktree and starts it on a free port with a temporary data directory (`PORT` and `DATA_DIR`, as `scripts/local.sh` supports). The instance is always torn down afterwards.
 - **Settings.** `orchestrator/settings.yaml`. Defaults:
   - `max_retries: 2`

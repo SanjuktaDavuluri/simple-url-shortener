@@ -77,8 +77,12 @@ class AwaitApproval:
         return {"decision": {"approved": False, "checkpoint": checkpoint, "reason": reason}}
 
 
-def record_gate(ctx: RunContext, stage: str, gate: str, problems: list[str]) -> None:
-    ctx.event("gate_result", stage, {"gate": gate, "passed": not problems, "problems": problems})
+def record_gate(
+    ctx: RunContext, stage: str, gate: str, problems: list[str], lane: str | None = None
+) -> None:
+    """The gate's result; a Lane's gates carry its key, so recovery time is measured per Lane."""
+    data: dict[str, Any] = {"gate": gate, "passed": not problems, "problems": problems}
+    ctx.event("gate_result", stage, {**data, **({"lane": lane} if lane else {})})
 
 
 def gate_failed(

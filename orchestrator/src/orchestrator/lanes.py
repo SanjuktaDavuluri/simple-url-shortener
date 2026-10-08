@@ -378,7 +378,7 @@ class Schedule:
             return current
         if ci == "failed":
             problems = [f"Required checks failed on PR #{pr}:\n{output}"]
-            record_gate(ctx, "pr", "required checks pass", problems)
+            record_gate(ctx, "pr", "required checks pass", problems, current["key"])
             return lane_gate_failed(ctx, "pr", "required checks", current, problems, "implement")
         request_merge(ctx, pr)
         return {**current, "status": "awaiting_merge"}
@@ -387,7 +387,7 @@ class Schedule:
         ctx, pr = self.ctx, current["pr"]
         outcome = merge_outcome(ctx, pr)
         if outcome == "merged":
-            record_gate(ctx, "pr", "required checks pass", [])
+            record_gate(ctx, "pr", "required checks pass", [], current["key"])
             ctx.event("stage_passed", "pr", {"lane": current["key"], "pr": pr})
             ctx.event("lane_finished", "pr", {"lane": current["key"], "outcome": "merged"})
             return {**current, "status": "merged"}
@@ -526,7 +526,7 @@ class LaneWork:
             return self.amend(state, current, result.output["spec_amendment"])
         problems, _ = review_step(ctx, "implement", tree, dependencies_allowed=True)
         if problems:
-            record_gate(ctx, "implement", "policy", problems)
+            record_gate(ctx, "implement", "policy", problems, current["key"])
             return lane_gate_failed(ctx, "implement", "policy", current, problems, "implement")
         prefix = PREFIX.get(current["kind"], "feat")
         commit_all(tree, f"{prefix}: {current['title']} (#{current['issue']})")
@@ -578,7 +578,7 @@ class LaneWork:
                 )
             )
         problems = [o.problem() for o in outcomes if not o.ok]
-        record_gate(ctx, "implement", "verify passes", problems)
+        record_gate(ctx, "implement", "verify passes", problems, current["key"])
         if problems:
             return lane_gate_failed(ctx, "implement", "verify", current, problems, "implement")
         ctx.event("stage_passed", "implement", {"lane": current["key"]})
@@ -605,7 +605,7 @@ class LaneWork:
         )
         problems, _ = review_step(ctx, "document", tree)
         if problems:
-            record_gate(ctx, "document", "policy", problems)
+            record_gate(ctx, "document", "policy", problems, current["key"])
             return lane_gate_failed(ctx, "document", "policy", current, problems, "document")
         commit_all(tree, f"docs: {current['title']} (#{current['issue']})")
         docs = list(result.output.get("docs_updated", []))

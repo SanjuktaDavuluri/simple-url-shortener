@@ -3,7 +3,7 @@
 The **delivery plane** of this repository: a development-time command-line tool that drives a GitHub Issue through gated Stages to merge-ready pull requests, under human control. It never deploys, and it never connects to a running service (ADR 0007).
 
 - **Spec:** [0002](../docs/specs/0002-delivery-orchestrator.md) · **Decisions:** ADRs [0007](../docs/adr/0007-delivery-orchestrator.md)–[0011](../docs/adr/0011-orchestrator-replanning-and-lineage.md) and [0020](../docs/adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md) · **Vocabulary:** the Delivery section of [`CONTEXT.md`](../CONTEXT.md)
-- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28), **lanes → release readiness → close-out** (#29), **policy guardrails** (#32), **failure handling**: retries, pause and resume, Rollback, Safe-stop and cost caps (#31), **parallel Lanes** joined before release readiness (#30), and **Re-plan** with content-hash lineage, follow-up tickets and spec amendments (#33). Metrics and the real agent arrive with #34–#35 (Release 2).
+- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28), **lanes → release readiness → close-out** (#29), **policy guardrails** (#32), **failure handling**: retries, pause and resume, Rollback, Safe-stop and cost caps (#31), **parallel Lanes** joined before release readiness (#30), **Re-plan** with content-hash lineage, follow-up tickets and spec amendments (#33), and **delivery metrics** (#34). The real agent arrives with #35 (Release 2).
 
 ## Setup
 
@@ -28,6 +28,7 @@ Run it from anywhere inside the repository; it finds the repository root with gi
 | `orchestrate replan <run>` | Compares the hashes each Stage recorded for its inputs with the artifacts as they are now. If something changed, the Run re-plans from the first Stage that consumes it (see [Re-plan](#re-plan)); otherwise it says nothing changed. A finished Run is never re-planned |
 | `orchestrate approve <run> <checkpoint>` | Approves `spec`, `adr-NNNN` (one per ADR), `tickets`, `dependency:<lane>` or `amendment-N`. The approval is bound to the content hash that was submitted; if the file changed since, it is refused |
 | `orchestrate reject <run> <checkpoint> --reason "…"` | Rejects with a reason; the Stage revises and asks for approval again (an earlier label no longer counts). `reject <run> lane:<key>` rolls back a Lane that is paused (any of them, when several are) |
+| `orchestrate metrics` | Regenerates [`delivery/metrics.md`](../delivery/metrics.md) from every committed Event Log: success rate, retry and rollback frequency, MTTR, end-to-end latency (total and excluding human wait) and cost per Run. Logs that fail `verify` are ignored, and the output names them. Close-out regenerates it too |
 | `orchestrate verify <run>` / `--all` | Checks that Event Logs are intact (sequence, each event's hash, the link to the previous event) and names the first broken event |
 
 ## How a Run talks to you
