@@ -1,6 +1,7 @@
 """Walking skeleton (#26): `orchestrate start`, `status` and `verify` through the CLI seam."""
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -23,13 +24,13 @@ def test_start_creates_a_run_that_passes_intake(
     assert code == 0
     assert "R-0001" in out
     log = events(repo, "R-0001")
-    assert [(e["stage"], e["type"]) for e in log] == [
+    assert [(e["stage"], e["type"]) for e in log[:4]] == [
         (None, "run_started"),
         ("intake", "stage_started"),
         ("intake", "gate_result"),
         ("intake", "stage_passed"),
     ]
-    assert [e["seq"] for e in log] == [1, 2, 3, 4]
+    assert [e["seq"] for e in log] == list(range(1, len(log) + 1))
     assert all(e["schema_version"] == 1 and e["run"] == "R-0001" for e in log)
     assert log[0]["actor"] == "engineer"
     assert log[0]["data"]["issue"] == 42
@@ -111,7 +112,7 @@ def test_status_shows_each_stage(orchestrate: Orchestrate, github: InMemoryGitHu
     lines = {line.split()[0]: line.split()[1] for line in out.splitlines() if line.startswith("  ")}
     assert lines == {
         "intake": "passed",
-        "requirements": "pending",
+        "requirements": "running",
         "design": "pending",
         "decompose": "pending",
         "lanes": "pending",
@@ -228,6 +229,9 @@ def test_run_state_stays_out_of_the_working_tree(
 
     written = {p.relative_to(repo).parts[0] for p in repo.rglob("*") if p.is_file()}
     assert written - {".git", "docs"} == {".orchestrator"}
+    assert not subprocess.run(
+        ["git", "status", "--porcelain", "--ignored=no"], cwd=repo, capture_output=True, text=True
+    ).stdout.replace("?? .orchestrator/\n", "")
 
 
 def test_unknown_run_is_reported(orchestrate: Orchestrate) -> None:
