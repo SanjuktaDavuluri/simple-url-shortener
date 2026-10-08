@@ -30,6 +30,10 @@ _Avoid_: Host, domain, origin
 A newly drawn Short Code that already names an existing Link, so another must be drawn.
 _Avoid_: Clash, duplicate code
 
+**Manage Token**:
+The secret returned once, when a Link is created, which authorises reading its Stats and later editing and deleting it. It is a high-entropy random value, never shown again; the shortener keeps only a one-way hash of it (ADR 0014, ADR 0023). Links created before Manage Tokens existed have none.
+_Avoid_: API key, password, access code
+
 ### Rules
 
 **Rule**:

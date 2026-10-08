@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +20,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
@@ -27,21 +29,26 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Base for integration tests at the HTTP seam (plan 0001): the full Spring application over a real
- * SQLite file migrated by Flyway, with a scripted Short Code generator and a fixed clock.
+ * SQLite file migrated by Flyway, with scripted Short Code and Manage Token generators and a fixed
+ * clock.
  *
  * <p>Spring caches one application context for every subclass, so they share its database file,
- * generator and clock. Before each test they are reset: the Click Recorder is flushed (so no Click
+ * generators and clock. Before each test they are reset: the Click Recorder is flushed (so no Click
  * from the previous test is written into this test's database), Flyway rebuilds the schema from its
- * migrations (so the Link Store and Click Store are empty), the Short Code script is emptied and
- * the clock goes back to {@link #NOW}. Tests therefore never depend on each other or on running
- * order.
+ * migrations (so the Link Store and Click Store are empty), the Short Code and Manage Token scripts
+ * are emptied and the clock goes back to {@link #NOW}. Tests therefore never depend on each other
+ * or on running order.
  *
  * <p>Stored Clicks are observed through the Click Store, after flushing the Click Recorder (spec
  * 0003 seam 3; plan 0001 principle 1).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import({IntegrationTest.ScriptedCodes.class, IntegrationTest.FixedClock.class})
+@Import({
+  IntegrationTest.ScriptedCodes.class,
+  IntegrationTest.ScriptedTokens.class,
+  IntegrationTest.FixedClock.class
+})
 abstract class IntegrationTest {
 
   static final String BASE_URL = "http://sho.rt";
@@ -56,7 +63,11 @@ abstract class IntegrationTest {
 
   @Autowired ScriptedShortCodeGenerator shortCodes;
 
+  @Autowired ScriptedManageTokenGenerator manageTokens;
+
   @Autowired TestClock clock;
+
+  @Autowired private JdbcClient jdbc;
 
   @Autowired private Flyway flyway;
 
@@ -78,6 +89,7 @@ abstract class IntegrationTest {
     flyway.clean();
     flyway.migrate();
     shortCodes.willReturn();
+    manageTokens.willReturn();
     clock.set(NOW);
   }
 
@@ -102,12 +114,42 @@ abstract class IntegrationTest {
     assertThat(postLink(longUrl)).hasStatus(201);
   }
 
+  /** Creates a Link, asserts it succeeded and returns the Manage Token it was given. */
+  String createLinkForItsManageToken(String longUrl) {
+    MvcTestResult created = postLink(longUrl);
+    assertThat(created).hasStatus(201);
+    return JSON.readTree(created.getResponse().getContentAsByteArray())
+        .get("manage_token")
+        .asString();
+  }
+
+  /**
+   * The Manage Token hash stored with a Link, read straight from {@code links}: the column is the
+   * observable promise that only the hash is kept (spec 0005, story 6). Empty for a Link that has
+   * none.
+   */
+  Optional<String> storedManageTokenHash(String shortCode) {
+    return jdbc.sql("SELECT manage_token_hash FROM links WHERE short_code = :shortCode")
+        .param("shortCode", shortCode)
+        .query((row, i) -> Optional.ofNullable(row.getString(1)))
+        .single();
+  }
+
   @TestConfiguration
   static class FixedClock {
     @Bean
     @Primary
     TestClock testClock() {
       return new TestClock(NOW);
+    }
+  }
+
+  @TestConfiguration
+  static class ScriptedTokens {
+    @Bean
+    @Primary
+    ScriptedManageTokenGenerator scriptedManageTokenGenerator() {
+      return new ScriptedManageTokenGenerator();
     }
   }
 

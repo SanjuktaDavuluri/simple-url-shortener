@@ -23,11 +23,14 @@ class JdbcLinkStore implements LinkStore {
   }
 
   @Override
-  public void save(String shortCode, String longUrl) {
+  public void save(String shortCode, String longUrl, String manageTokenHash) {
     try {
-      jdbc.sql("INSERT INTO links (short_code, long_url) VALUES (:shortCode, :longUrl)")
+      jdbc.sql(
+              "INSERT INTO links (short_code, long_url, manage_token_hash)"
+                  + " VALUES (:shortCode, :longUrl, :manageTokenHash)")
           .param("shortCode", shortCode)
           .param("longUrl", longUrl)
+          .param("manageTokenHash", manageTokenHash)
           .update();
     } catch (DataAccessException e) {
       if (isDuplicateShortCode(e)) {

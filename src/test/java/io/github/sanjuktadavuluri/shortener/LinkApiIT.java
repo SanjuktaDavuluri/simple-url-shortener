@@ -10,6 +10,7 @@ class LinkApiIT extends IntegrationTest {
   @Test
   void creatingALinkReturnsItsShortUrl() {
     shortCodes.willReturn("Ab3xK9q");
+    manageTokens.willReturn("first-scripted-manage-token-for-tests-00001");
 
     assertThat(postLink("https://example.com/very/long"))
         .hasStatus(201)
@@ -19,7 +20,8 @@ class LinkApiIT extends IntegrationTest {
             {
               "short_code": "Ab3xK9q",
               "short_url": "http://sho.rt/Ab3xK9q",
-              "long_url": "https://example.com/very/long"
+              "long_url": "https://example.com/very/long",
+              "manage_token": "first-scripted-manage-token-for-tests-00001"
             }
             """);
   }
