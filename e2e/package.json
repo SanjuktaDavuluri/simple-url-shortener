@@ -4,6 +4,7 @@
   "description": "Browser checks and Lighthouse for the web page (plan 0001; issue #8). Runs against an already started app.",
   "type": "commonjs",
   "scripts": {
+    "test": "node --test scoring.test.js",
     "browser-checks": "node browser-checks.js",
     "lighthouse": "node lighthouse.js",
     "all": "node browser-checks.js && node lighthouse.js"
