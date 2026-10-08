@@ -161,6 +161,7 @@ curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"u
 ```
 src/main/java/…/shortener/   the service: controllers, LinkService, Link Store, Short Code generator
 src/main/java/…/rules/       URL Rules and the Rule Set (ADR 0004)
+src/main/java/…/clicks/      Click Classifier: Referer and User-Agent reduced to Referrer Host, Agent Category, Device Class (spec 0003)
 src/main/resources/          configuration, Flyway migrations, Thymeleaf templates, static assets
 src/test/                    unit tests (*Test) and integration tests (*IT)
 e2e/                         browser checks (Playwright) and Lighthouse audits
