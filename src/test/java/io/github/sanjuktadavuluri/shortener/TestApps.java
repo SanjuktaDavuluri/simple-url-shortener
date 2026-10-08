@@ -33,6 +33,23 @@ final class TestApps {
    */
   static ConfigurableApplicationContext startWithEnvironment(
       Path database, Map<String, String> environmentVariables, String... extraArguments) {
+    return run(database, environmentVariables, List.of(), extraArguments);
+  }
+
+  /**
+   * Starts the application as {@link #start} does, with these {@code @TestConfiguration} classes
+   * added to it, e.g. to swap in a stand-in bean marked {@code @Primary} for one instance only.
+   */
+  static ConfigurableApplicationContext startWithConfigurations(
+      Path database, List<Class<?>> configurations, String... extraArguments) {
+    return run(database, Map.of(), configurations, extraArguments);
+  }
+
+  private static ConfigurableApplicationContext run(
+      Path database,
+      Map<String, String> environmentVariables,
+      List<Class<?>> configurations,
+      String... extraArguments) {
     List<String> arguments = new ArrayList<>();
     arguments.add("--server.port=0");
     arguments.add("--shortener.database-path=" + database);
@@ -46,9 +63,17 @@ final class TestApps {
             StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
             new SystemEnvironmentPropertySource(
                 StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, variables));
-    return new SpringApplicationBuilder(SimpleUrlShortenerApplication.class)
+    List<Class<?>> sources = new ArrayList<>();
+    sources.add(SimpleUrlShortenerApplication.class);
+    sources.addAll(configurations);
+    return new SpringApplicationBuilder(sources.toArray(Class<?>[]::new))
         .environment(environment)
         .run(arguments.toArray(String[]::new));
+  }
+
+  /** The port a running instance's web server listens on. */
+  static int port(ConfigurableApplicationContext app) {
+    return Integer.parseInt(app.getEnvironment().getRequiredProperty("local.server.port"));
   }
 
   /** A {@link MockMvcTester} bound to a running instance. */
