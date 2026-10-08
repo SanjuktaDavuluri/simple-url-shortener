@@ -24,10 +24,8 @@ class ReleaseReadiness:
         ctx = self.ctx
         ctx.event("stage_started", "release_readiness")
         problems: list[str] = []
-        prs = [
-            (state["docs_pr"], ctx.issue, None),
-            *((ln["pr"], ln["issue"], ln) for ln in state["lanes"]),
-        ]
+        merged = [ln for ln in state["lanes"] if ln["status"] == "merged"]
+        prs = [(state["docs_pr"], ctx.issue, None), *((ln["pr"], ln["issue"], ln) for ln in merged)]
         for number, issue, current in prs:
             pr = ctx.github.pr(number)
             if pr.state != "merged":
@@ -49,7 +47,10 @@ class ReleaseReadiness:
             listing = "\n".join(f"- {p}" for p in problems)
             ctx.event("stage_failed", "release_readiness", {"problems": problems})
             ctx.event("paused", "release_readiness", {"reason": "traceability is incomplete"})
-            ctx.mirror(f"⏸️ Paused: release readiness found gaps in traceability:\n{listing}")
+            ctx.mirror(
+                f"⏸️ Paused: release readiness found gaps in traceability:\n{listing}\n\n"
+                f"Fix them, then `orchestrate resume {ctx.run}`."
+            )
             return {"paused": True}
         ctx.event("stage_passed", "release_readiness")
         return {}
@@ -85,6 +86,19 @@ def report(run: str, events: list[Event]) -> str:
     )
     prs = "\n".join(
         f"| {e['data']['lane']} | #{e['data']['pr']} |" for e in events if e["type"] == "pr_opened"
+    )
+    undone = "\n".join(
+        [
+            f"| {e['data']['lane']} | #{e['data']['issue']} | Rolled back: {e['data']['reason']} |"
+            for e in events
+            if e["type"] == "lane_rolled_back"
+        ]
+        + [
+            f"| {e['data']['lane']} | #{e['data']['issue']} | Skipped: blocked by "
+            f"{', '.join(e['data']['blocked_by'])} |"
+            for e in events
+            if e["type"] == "lane_skipped"
+        ]
     )
     calls = [e for e in events if e["type"] == "agent_call"]
     cost = sum(e["data"]["cost_usd"] for e in calls)
@@ -123,6 +137,12 @@ Started {started["ts"]} · finished {events[-1]["ts"]} · {len(events)} events
 | Lane | PR |
 |---|---|
 {prs}
+
+## Rolled back and skipped Lanes
+
+| Lane | Ticket | What happened |
+|---|---|---|
+{undone or "| — | — | none |"}
 """
 
 
@@ -148,7 +168,16 @@ class CloseOut:
             )
         )
         ctx.event("stage_passed", "close_out")
-        ctx.event("run_finished", None, {"outcome": "delivered"})
+        rolled_back = [ln["key"] for ln in state["lanes"] if ln["status"] == "rolled_back"]
+        skipped = [ln["key"] for ln in state["lanes"] if ln["status"] == "skipped"]
+        outcome: dict[str, object] = {"outcome": "delivered"}
+        if rolled_back or skipped:
+            outcome = {
+                "outcome": "partially delivered",
+                "rolled_back": rolled_back,
+                "skipped": skipped,
+            }
+        ctx.event("run_finished", None, outcome)
         target = tree / "delivery" / "runs" / ctx.run
         target.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ctx.log.path, target / "events.jsonl")

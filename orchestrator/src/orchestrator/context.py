@@ -19,6 +19,10 @@ class RunPaused(Exception):
         self.stage, self.reason = stage, reason
 
 
+class RunStopped(RunPaused):
+    """A Safe-stop: requested by the engineer, a `stop` label, or a cost cap."""
+
+
 def marker(run: str) -> str:
     """Hidden in each comment the orchestrator posts, so its own comments never count as answers."""
     return f"<!-- orchestrator:{run} -->"
@@ -51,7 +55,35 @@ class RunContext:
         """Post progress on the Run's Issue: the readable mirror of the Event Log (ADR 0009)."""
         return self.github.add_comment(self.issue, f"{marker(self.run)}\n**{self.run}** · {text}")
 
+    def spent(self) -> float:
+        return float(
+            sum(e["data"]["cost_usd"] for e in self.log.read() if e["type"] == "agent_call")
+        )
+
+    def request_stop(self, reason: str) -> None:
+        flag = self.workspace.stop_flag(self.run)
+        flag.parent.mkdir(parents=True, exist_ok=True)
+        flag.write_text(reason)
+
+    def check_boundary(self, stage: str | None) -> None:
+        """Between steps: honour a requested Safe-stop or a `stop` label on the Issue."""
+        flag = self.workspace.stop_flag(self.run)
+        if flag.exists():
+            raise RunStopped(stage or "", flag.read_text() or "orchestrate stop")
+        if "stop" in self.github.get_issue(self.issue).labels:
+            raise RunStopped(stage or "", f"the stop label is on Issue #{self.issue}")
+
     def call_agent(self, request: StepRequest) -> StepResult:
+        spent, cap = self.spent(), self.settings.cost_cap_run_usd
+        if spent >= cap:
+            self.event(
+                "cost_cap_reached",
+                request.stage,
+                {"scope": "run", "cost_usd": round(spent, 4), "cap_usd": cap},
+            )
+            raise RunStopped(
+                request.stage, f"the Run reached its cost cap (${spent:.2f} of ${cap:.2f})"
+            )
         if self.agent is None:
             raise RuntimeError(
                 "No agent is configured; the Claude Agent SDK adapter arrives with #35"
@@ -82,6 +114,16 @@ class RunContext:
                 "duration_ms": result.duration_ms,
             },
         )
+        step_cap = self.settings.cost_cap_step_usd
+        if result.cost_usd > step_cap:
+            self.event(
+                "cost_cap_reached",
+                request.stage,
+                {"scope": "step", "cost_usd": result.cost_usd, "cap_usd": step_cap},
+            )
+            self.request_stop(
+                f"a step exceeded its cost cap (${result.cost_usd:.2f} of ${step_cap:.2f})"
+            )
         if len(blocked) > self.settings.max_retries:
             raise RunPaused(
                 request.stage, f"{len(blocked)} actions were blocked by policy in one step"

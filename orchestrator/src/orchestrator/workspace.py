@@ -50,6 +50,14 @@ class Workspace:
                 return run
         return None
 
+    def stop_flag(self, run: str) -> Path:
+        """Present while a Safe-stop has been requested for the Run; holds the reason."""
+        return self.local_runs / run / "stop"
+
+    def lock(self, run: str) -> Path:
+        """Present (holding a process ID) while a command is driving the Run."""
+        return self.local_runs / run / "lock"
+
     @property
     def checkpoint_db(self) -> Path:
         return self.state_dir / "state.db"

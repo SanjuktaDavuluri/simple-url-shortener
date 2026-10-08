@@ -48,6 +48,10 @@ class InMemoryGitHub:
         self.issues[number] = issue
         return issue
 
+    def set_labels(self, number: int, *labels: str) -> None:
+        issue = self.issues[number]
+        self.issues[number] = Issue(issue.number, issue.title, issue.body, tuple(labels))
+
     def get_issue(self, number: int) -> Issue:
         if number not in self.issues:
             raise IssueNotFound(number)

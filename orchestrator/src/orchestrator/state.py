@@ -40,3 +40,7 @@ class RunState(TypedDict, total=False):
     close_out_pr: int
     dependency_change: dict[str, Any] | None
     dependencies_approved: dict[str, str]
+    action: str | None
+    rollback_reason: str | None
+    rollback_by: str | None
+    lane_skipped: bool
