@@ -3,7 +3,7 @@
 The **delivery plane** of this repository: a development-time command-line tool that drives a GitHub Issue through gated Stages to merge-ready pull requests, under human control. It never deploys, and it never connects to a running service (ADR 0007).
 
 - **Spec:** [0002](../docs/specs/0002-delivery-orchestrator.md) · **Decisions:** ADRs [0007](../docs/adr/0007-delivery-orchestrator.md)–[0011](../docs/adr/0011-orchestrator-replanning-and-lineage.md) · **Vocabulary:** the Delivery section of [`CONTEXT.md`](../CONTEXT.md)
-- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28), and **lanes → release readiness → close-out** for tickets one at a time (#29). Parallel Lanes, failure handling, guardrails, Re-plan, metrics and the real agent arrive with #30–#35 (Release 2).
+- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28), **lanes → release readiness → close-out** for tickets one at a time (#29), and **policy guardrails** (#32). Parallel Lanes, failure handling, Re-plan, metrics and the real agent arrive with #30, #31, #33–#35 (Release 2).
 
 ## Setup
 
@@ -51,6 +51,20 @@ Run it from anywhere inside the repository; it finds the repository root with gi
 A failing gate goes back to the agent with its problems, up to `max_retries` times; then the Stage fails and the Run pauses. A rejection goes back with its reason, and the revision needs a fresh approval.
 
 **Temporary instances.** A check that needs a running app starts it from the Lane's worktree with `app_start_command` on a free port and a fresh `DATA_DIR`, runs `browser_check_command` against `BASE_URL`, then always runs `app_stop_command` and deletes the data directory. Your own service (for example on :8000) is never touched. The commands are settings, so tests replace them with probes.
+
+## Policy guardrails
+
+[`policies.yaml`](policies.yaml) holds the rules (ADR 0010). It's data, protected by `CODEOWNERS`, and agents may not edit it. A Run won't start without a valid policy file, and `run_started` records its hash. The same pure check enforces it in two places:
+
+1. **Before every action.** Each agent step gets a `guard`, the `PreToolUse` hook for the real agent (#35). It checks every shell command, file write and fetch:
+   - **git:** no pushes to `main`, no force-pushes, and no deleting branches other than the Run's own
+   - **gh:** no `gh pr merge`, and no `gh api` calls that change protection, collaborators, hooks or secrets
+   - **commands:** no `sudo`; no piping or running downloaded code; no `rm` outside the worktree
+   - **files:** no writes to protected paths, no ADRs outside the design Stage, and no content that looks like a credential
+   - **network:** hosts on the allow-list only
+
+   Disguised forms are caught too: wrappers (`env`, `bash -c`, `eval`), absolute paths to the program, a backslash before it, and chained commands. A blocked action is recorded as `policy_blocked` and reported back to the agent, which can try another way. If more than `max_retries` actions are blocked in one step, the Run **pauses**, and `orchestrate resume` retries that step.
+2. **After every step.** Each Exit Gate reviews what the step actually changed: protected and Stage-only paths, and credentials in added lines. The reason names the file, line and pattern, **never the matched text**. A **dependency manifest** change (`pom.xml`, `e2e/package*.json`, the orchestrator's `pyproject.toml`/`uv.lock`, the Maven wrapper) adds an Approval Checkpoint, `dependency:<lane>`, before the Lane's verify gate.
 
 ## Where things are kept
 

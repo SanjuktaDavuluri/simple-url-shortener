@@ -11,7 +11,7 @@ from typing import Any, Literal
 from langgraph.types import interrupt
 
 from orchestrator.agent import StepRequest
-from orchestrator.approvals import gate_failed, record_gate
+from orchestrator.approvals import gate_failed, record_gate, review_step
 from orchestrator.commands import run, with_temporary_instance
 from orchestrator.context import RunContext
 from orchestrator.gitops import (
@@ -22,6 +22,7 @@ from orchestrator.gitops import (
     run_branch,
     worktree,
 )
+from orchestrator.hashing import content_hash
 from orchestrator.state import RunState
 
 STAGE = "lanes"
@@ -220,8 +221,84 @@ class Implement:
                 budget_usd=ctx.settings.cost_cap_step_usd,
             )
         )
+        problems, _ = review_step(ctx, "implement", tree, dependencies_allowed=True)
+        if problems:
+            record_gate(ctx, "implement", "policy", problems)
+            return gate_failed(ctx, "implement", "policy", state, problems)
         prefix = PREFIX.get(current["kind"], "feat")
         commit_all(tree, f"{prefix}: {current['title']} (#{current['issue']})")
+        manifests = [
+            m for m in changed_since_main(tree) if m in ctx.policies.raw["dependency_manifests"]
+        ]
+        if manifests:
+            digest = manifests_hash(tree, manifests)
+            if state.get("dependencies_approved", {}).get(current["key"]) != digest:
+                push(tree, current["branch"])
+                return {
+                    "dependency_change": {"manifests": manifests, "hash": digest},
+                    "feedback": None,
+                }
+        return {"dependency_change": None, "feedback": None}
+
+
+def dependency_change(state: RunState) -> dict[str, Any]:
+    change = state.get("dependency_change")
+    assert change is not None
+    return change
+
+
+def manifests_hash(tree: Any, manifests: list[str]) -> str:
+    return content_hash("\n".join((tree / m).read_text() for m in manifests))
+
+
+def describe_dependency(state: RunState) -> tuple[str, str, str, str]:
+    change = dependency_change(state)
+    listed = ", ".join(f"`{m}`" for m in change["manifests"])
+    return (
+        f"dependency:{lane(state)['key']}",
+        change["manifests"][0],
+        change["hash"],
+        f"\n\nLane {lane(state)['key']} changes dependency manifests: {listed}. "
+        "Dependency changes always get a human review.",
+    )
+
+
+def dependency_location(state: RunState) -> tuple[str, str, list[str]]:
+    current = lane(state)
+    return (
+        current["branch"],
+        f"{state['run']}-{current['issue']}",
+        dependency_change(state)["manifests"],
+    )
+
+
+class DependencyDecided:
+    def __init__(self, ctx: RunContext) -> None:
+        self.ctx = ctx
+
+    def __call__(self, state: RunState) -> RunState:
+        decision = state["decision"]
+        if not decision["approved"]:
+            return {
+                "feedback": f"{decision['checkpoint']} rejected: {decision['reason']}",
+                "attempts": 0,
+            }
+        approved = {
+            **state.get("dependencies_approved", {}),
+            lane(state)["key"]: dependency_change(state)["hash"],
+        }
+        return {"dependencies_approved": approved, "dependency_change": None}
+
+
+class Verify:
+    """The implement Exit Gate: the verify command, plus browser checks on a temporary instance."""
+
+    def __init__(self, ctx: RunContext) -> None:
+        self.ctx = ctx
+
+    def __call__(self, state: RunState) -> RunState:
+        ctx, current = self.ctx, lane(state)
+        tree = lane_tree(ctx, state)
         s = ctx.settings
         outcomes = [run(s.verify_command, tree)]
         web = tuple(p for p in s.web_paths.split(",") if p)
@@ -257,14 +334,19 @@ class Document:
                     "ticket": {k: current[k] for k in ("key", "issue", "title")},
                     "spec": state["spec"],
                     "changed_files": changed_since_main(tree),
+                    "feedback": state.get("feedback"),
                 },
                 budget_usd=ctx.settings.cost_cap_step_usd,
             )
         )
+        problems, _ = review_step(ctx, "document", tree)
+        if problems:
+            record_gate(ctx, "document", "policy", problems)
+            return gate_failed(ctx, "document", "policy", state, problems)
         commit_all(tree, f"docs: {current['title']} (#{current['issue']})")
         docs = list(result.output.get("docs_updated", []))
         ctx.event("stage_passed", "document", {"lane": current["key"], "docs_updated": docs})
-        return {}
+        return {"feedback": None, "attempts": 0}
 
 
 class OpenPr:
@@ -357,10 +439,28 @@ def after_merge(state: RunState) -> Literal["recheck", "next", "stop"]:
     return "next" if state["merge"] == "merged" else "stop"
 
 
-def after_implement(state: RunState) -> Literal["document", "implement", "stop"]:
+def after_implement(state: RunState) -> Literal["verify", "dependency", "implement", "stop"]:
+    if state.get("paused"):
+        return "stop"
+    if state.get("feedback"):
+        return "implement"
+    return "dependency" if state.get("dependency_change") else "verify"
+
+
+def after_dependency(state: RunState) -> Literal["verify", "implement"]:
+    return "verify" if state["decision"]["approved"] else "implement"
+
+
+def after_verify(state: RunState) -> Literal["document", "implement", "stop"]:
     if state.get("paused"):
         return "stop"
     return "implement" if state.get("feedback") else "document"
+
+
+def after_document(state: RunState) -> Literal["open_pr", "document", "stop"]:
+    if state.get("paused"):
+        return "stop"
+    return "document" if state.get("feedback") else "open_pr"
 
 
 def after_lane_checks(state: RunState) -> Literal["recheck", "request_merge", "failed"]:

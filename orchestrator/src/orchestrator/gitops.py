@@ -4,6 +4,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from orchestrator.policies import Change
 from orchestrator.workspace import Workspace
 
 
@@ -61,6 +62,21 @@ def files_on_main(workspace: Workspace, directory: str) -> list[str]:
         text=True,
     )
     return listing.stdout.split()
+
+
+def uncommitted_changes(tree: Path) -> list[Change]:
+    """What the last step changed in the worktree, with the lines it added, for the policy check."""
+    _git(tree, "add", "-A", "--intent-to-add")
+    diff = _git(tree, "diff", "HEAD", "--no-color", "--unified=0", "--no-renames")
+    changes: dict[str, list[str]] = {}
+    current = ""
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            current = line.split(" b/", 1)[1]
+            changes[current] = []
+        elif line.startswith("+") and not line.startswith("+++") and current:
+            changes[current].append(line[1:])
+    return [Change(path, "\n".join(added)) for path, added in changes.items()]
 
 
 def commit_all(tree: Path, message: str) -> bool:

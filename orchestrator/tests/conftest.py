@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -6,6 +7,8 @@ import pytest
 
 from fakes import InMemoryGitHub, ScriptedAgent
 from orchestrator.cli import Deps, main
+
+pytest_plugins = ["lane_fixtures"]
 
 ROADMAP = """# Roadmap
 
@@ -33,6 +36,11 @@ def repo(tmp_path: Path) -> Path:
     (work / "docs" / "roadmap.md").write_text(ROADMAP)
     _git(work, "add", ".")
     _git(work, "commit", "-m", "initial")
+    (work / "orchestrator").mkdir()
+    shutil.copyfile(
+        Path(__file__).resolve().parents[1] / "policies.yaml",
+        work / "orchestrator" / "policies.yaml",
+    )
     _git(work, "remote", "add", "origin", str(remote))
     _git(work, "push", "-u", "origin", "main")
     return work

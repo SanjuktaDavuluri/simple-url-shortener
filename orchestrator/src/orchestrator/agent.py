@@ -3,9 +3,12 @@
 The Claude Agent SDK adapter arrives with #35; tests use a scripted agent.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
+
+from orchestrator.policies import Decision, ToolCall
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,8 @@ class StepRequest:
     context: dict[str, Any] = field(default_factory=dict)
     allowed_tools: tuple[str, ...] = ()
     budget_usd: float = 0.0
+    # The policy check every action must pass before it runs (the PreToolUse hook, ADR 0010).
+    guard: Callable[[ToolCall], Decision] = field(default=lambda call: Decision(True))
 
 
 @dataclass(frozen=True)

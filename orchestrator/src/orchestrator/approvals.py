@@ -1,28 +1,37 @@
 """Approval Checkpoints and Exit Gate retries, shared by every Stage (ADR 0008)."""
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from langgraph.types import interrupt
 
 from orchestrator.context import RunContext
-from orchestrator.gitops import run_branch
+from orchestrator.gitops import run_branch, uncommitted_changes
+from orchestrator.policies import check_changes
 from orchestrator.state import RunState
 
 # (checkpoint, artifact path on the Run's branch, its content hash, extra text for the request)
 Describe = Callable[[RunState], tuple[str, str, str, str]]
+# Where the artifact lives when it isn't on the Run's documents branch: (branch, worktree, paths)
+Location = Callable[[RunState], tuple[str, str, list[str]]]
 
 
 class RequestApproval:
     """Posts the approval request. Kept apart from the waiting node, so it is never re-posted."""
 
-    def __init__(self, ctx: RunContext, stage: str, describe: Describe) -> None:
-        self.ctx, self.stage, self.describe = ctx, stage, describe
+    def __init__(
+        self, ctx: RunContext, stage: str, describe: Describe, location: Location | None = None
+    ) -> None:
+        self.ctx, self.stage, self.describe, self.location = ctx, stage, describe, location
 
     def __call__(self, state: RunState) -> RunState:
         ctx = self.ctx
         checkpoint, path, artifact_hash, extra = self.describe(state)
-        url = ctx.github.file_url(run_branch(ctx.run), path)
+        branch, tree, paths = (
+            self.location(state) if self.location else (run_branch(ctx.run), ctx.run, [path])
+        )
+        url = ctx.github.file_url(branch, path)
         comment = ctx.mirror(
             f"✅ Approval needed: **{checkpoint}**: [{path}]({url}) (hash `{artifact_hash[:12]}`)."
             f"{extra}\n\nApprove with `orchestrate approve {ctx.run} {checkpoint}` or a "
@@ -40,6 +49,8 @@ class RequestApproval:
                 "path": path,
                 "hash": artifact_hash,
                 "requested_at": comment.created_at,
+                "tree": tree,
+                "paths": paths,
             }
         }
 
@@ -83,3 +94,17 @@ def gate_failed(
         return {"attempts": attempts, "paused": True}
     ctx.mirror(f"{what.capitalize()} gate failed (attempt {attempts}); revising:\n{listing}")
     return {"attempts": attempts, "feedback": "\n".join(problems)}
+
+
+def review_step(
+    ctx: RunContext, stage: str, tree: Path, dependencies_allowed: bool = False
+) -> tuple[list[str], list[str]]:
+    """After a step: policy problems in what it changed, and the dependency manifests it touched."""
+    review = check_changes(ctx.policies, stage, uncommitted_changes(tree))
+    problems = list(review.problems)
+    if review.dependency_manifests and not dependencies_allowed:
+        problems += [
+            f"{m}: dependencies may only change while implementing a ticket"
+            for m in review.dependency_manifests
+        ]
+    return problems, review.dependency_manifests

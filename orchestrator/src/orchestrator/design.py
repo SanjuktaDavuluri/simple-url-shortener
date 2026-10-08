@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from orchestrator.agent import StepRequest
-from orchestrator.approvals import gate_failed, record_gate
+from orchestrator.approvals import gate_failed, record_gate, review_step
 from orchestrator.context import RunContext
 from orchestrator.gitops import commit_and_push, ensure_run_worktree, files_on_main
 from orchestrator.hashing import content_hash
@@ -128,6 +128,7 @@ class Gate:
                     f"{path} is accepted and can't change; restore it, and propose a new ADR "
                     "that supersedes it if the decision must change"
                 )
+        problems += review_step(ctx, STAGE, worktree)[0]
         record_gate(ctx, STAGE, "ADRs are complete", problems)
         if problems:
             return gate_failed(ctx, STAGE, "ADR", state, problems)

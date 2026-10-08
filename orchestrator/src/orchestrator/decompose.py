@@ -8,7 +8,7 @@ import json
 from typing import Any, Literal
 
 from orchestrator.agent import StepRequest
-from orchestrator.approvals import gate_failed, record_gate
+from orchestrator.approvals import gate_failed, record_gate, review_step
 from orchestrator.context import RunContext
 from orchestrator.gitops import commit_and_push, ensure_run_worktree, run_branch
 from orchestrator.hashing import content_hash
@@ -108,11 +108,12 @@ class Gate:
 
     def __call__(self, state: RunState) -> RunState:
         ctx = self.ctx
+        worktree = ensure_run_worktree(ctx.workspace, ctx.run)
         ordered, problems = order(state.get("tickets", []))
+        problems += review_step(ctx, STAGE, worktree)[0]
         record_gate(ctx, STAGE, "ticket breakdown is complete", problems)
         if problems:
             return gate_failed(ctx, STAGE, "ticket breakdown", state, problems)
-        worktree = ensure_run_worktree(ctx.workspace, ctx.run)
         path = tickets_path(ctx.run)
         text = json.dumps(ordered, indent=2, ensure_ascii=False) + "\n"
         (worktree / path).parent.mkdir(parents=True, exist_ok=True)
