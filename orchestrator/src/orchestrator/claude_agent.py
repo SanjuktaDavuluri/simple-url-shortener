@@ -1,6 +1,7 @@
 """The real Agent (ADR 0007): one Claude Agent SDK session per agent step.
 
-- The model comes from the Run's settings (`claude-opus-5-5` by default), passed on each request.
+- The model and effort come from the Run's settings, chosen per agent step (`stage_models`, else
+  `model`; ADR 0024), and are passed on each request.
 - Every tool call first passes the Run's policy check, as a `PreToolUse` hook (ADR 0010). It is the
   same `decide` function the Exit Gates use, so a denied action is refused before it runs, and the
   reason goes back to the agent so it can choose another way.
@@ -13,7 +14,7 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
@@ -31,7 +32,6 @@ from orchestrator.agent import AgentFailed, StepRequest, StepResult
 from orchestrator.policies import ToolCall
 
 TOOLS = ["Read", "Glob", "Grep", "Write", "Edit", "MultiEdit", "Bash", "WebFetch"]
-EFFORT: EffortLevel = "high"
 
 GUIDANCE = """\
 You work in the current directory: this step's own git worktree, branched from main. Don't commit,
@@ -128,7 +128,7 @@ def _relative(path: str, workspace: Path) -> str:
 def options(request: StepRequest, hook: HookCallback) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         model=request.model,
-        effort=EFFORT,
+        effort=cast(EffortLevel, request.effort),
         cwd=request.workspace,
         allowed_tools=TOOLS,
         permission_mode="dontAsk",  # anything not allowed above is refused, never prompted
