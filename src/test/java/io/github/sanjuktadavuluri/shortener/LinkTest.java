@@ -2,6 +2,7 @@ package io.github.sanjuktadavuluri.shortener;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -14,7 +15,12 @@ class LinkTest {
   @Test
   void aLinkCarriesItsManageTokenButItsTextFormLeavesTheTokenOut() {
     Link link =
-        new Link("Ab3xK9q", "http://sho.rt/Ab3xK9q", "https://example.com/very/long", SCRIPTED);
+        new Link(
+            "Ab3xK9q",
+            "http://sho.rt/Ab3xK9q",
+            "https://example.com/very/long",
+            SCRIPTED,
+            Optional.empty());
 
     assertThat(link.manageToken()).isEqualTo(SCRIPTED);
     assertThat(link.toString())

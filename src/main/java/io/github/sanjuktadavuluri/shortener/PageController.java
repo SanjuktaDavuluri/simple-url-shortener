@@ -1,6 +1,7 @@
 package io.github.sanjuktadavuluri.shortener;
 
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
@@ -42,7 +43,7 @@ class PageController {
       HttpServletResponse response) {
     model.addAttribute("longUrl", longUrl);
     try {
-      model.addAttribute("link", linkService.create(longUrl));
+      model.addAttribute("link", linkService.create(longUrl, Optional.empty()));
     } catch (RejectedLongUrlException e) {
       model.addAttribute("rejectionReason", e.rejectionReason());
       response.setStatus(HttpStatus.UNPROCESSABLE_CONTENT.value());

@@ -34,6 +34,18 @@ _Avoid_: Clash, duplicate code
 The secret returned once, when a Link is created, which authorises reading its Stats and later editing and deleting it. It is a high-entropy random value, never shown again; the shortener keeps only a one-way hash of it (ADR 0014, ADR 0023). Links created before Manage Tokens existed have none.
 _Avoid_: API key, password, access code
 
+**Lifetime**:
+The whole number of days, 1 to 365, that the person shortening a URL may give a Link when creating it.
+_Avoid_: TTL, duration, validity
+
+**Expiry**:
+The fixed UTC time a Link stops Redirecting: its creation time plus its Lifetime. A Link created without a Lifetime has none and never expires.
+_Avoid_: Expiration date, deadline, TTL
+
+**Expired Link**:
+A Link whose Expiry has passed. It stays stored, its Short Code is never reused, and its Short URL answers `410 Gone` instead of Redirecting.
+_Avoid_: Dead link, deleted link, inactive link
+
 ### Rules
 
 **Rule**:
