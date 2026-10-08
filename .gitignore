@@ -21,3 +21,11 @@ e2e/reports/
 
 # Local run (scripts/local.sh)
 .local/
+
+# Delivery orchestrator: local Run state (committed evidence lives in delivery/)
+.orchestrator/
+orchestrator/.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

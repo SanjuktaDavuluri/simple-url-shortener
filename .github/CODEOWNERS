@@ -1,0 +1,6 @@
+# Guardrails, CI and the committed delivery record change only through a reviewed PR
+# from the maintainer (ADR 0010).
+/orchestrator/policies.yaml @SanjuktaDavuluri
+/orchestrator/settings.yaml @SanjuktaDavuluri
+/.github/                   @SanjuktaDavuluri
+/delivery/                  @SanjuktaDavuluri

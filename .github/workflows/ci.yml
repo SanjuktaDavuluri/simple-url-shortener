@@ -92,3 +92,33 @@ jobs:
           path: |
             e2e/reports/
             ${{ runner.temp }}/app.log
+
+  orchestrator:
+    # Required on main. Runs on every PR (not path-filtered), so the required check always reports.
+    name: Orchestrator (lint, types, tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: orchestrator
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: orchestrator/uv.lock
+
+      - name: Install (locked)
+        run: uv sync --locked
+
+      - name: Lint and format
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Types (mypy, strict)
+        run: uv run mypy src tests
+
+      - name: Tests (scripted agent, in-memory GitHub; no network, no credentials)
+        run: uv run pytest

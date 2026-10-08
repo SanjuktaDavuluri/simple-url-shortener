@@ -71,7 +71,7 @@ Browser checks and Lighthouse, against a running app:
 | `src/main/resources/templates/`, `static/` | Thymeleaf page and fragments, CSS, self-hosted HTMX ([ADR 0006](adr/0006-htmx-progressive-enhancement-web-page.md)) |
 | `src/test/` | `*Test`: unit tests. `*IT`: integration tests that extend `IntegrationTest`, which resets the database before every test and controls Short Codes through a scripted generator |
 | `e2e/` | Playwright browser checks and Lighthouse (≥ 90 in every category) |
-| `orchestrator/` | The delivery orchestrator (Release 2; see [ADRs 0007–0011](adr/0007-delivery-orchestrator.md)) |
+| `orchestrator/` | The delivery orchestrator (Python, uv): setup, commands and tests in [`orchestrator/README.md`](../orchestrator/README.md); design in [ADRs 0007–0011](adr/0007-delivery-orchestrator.md) |
 
 ## 5. How a change is made
 
