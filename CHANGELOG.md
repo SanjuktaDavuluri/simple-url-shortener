@@ -6,6 +6,7 @@ All notable changes to the shortener are recorded here. The project follows [Sem
 
 ### Added (documentation only)
 - Releases 2 and 3 designed: ADRs 0007–0019, a re-prioritised roadmap, a reviewer's guide in the README, and an [onboarding guide](docs/onboarding.md) (#23).
+- An [engineering summary](docs/summary.md): architecture, the orchestration model, three scenarios (greenfield, brownfield, ambiguous), testing, risks, assumptions and limitations, linked from the README (#72).
 - `scripts/local.sh`, which runs the app in the background for manual testing (#22).
 
 ## [1.0.0] - 2026-10-07

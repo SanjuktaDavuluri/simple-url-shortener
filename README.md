@@ -14,6 +14,7 @@ This README is the map. Every question a reviewer or a new engineer usually asks
 
 | If you want to… | Read |
 |---|---|
+| Read everything in one document: architecture, three scenarios, testing, risks, limitations | [Engineering summary](docs/summary.md) |
 | See the system in one picture | [Two planes: the product and how it is delivered](#two-planes-the-product-and-how-it-is-delivered) (below) |
 | Know what the product does today | [The product](#the-product) · [Spec 0001: v1 core](docs/specs/0001-v1-core.md) · [Spec 0003: Clickstream](docs/specs/0003-clickstream.md) |
 | Learn the vocabulary (Link, Short Code, Rule, Redirect, Click, Click Recorder, Referrer Host, Agent Category, Device Class) | [`CONTEXT.md`](CONTEXT.md) |
@@ -32,7 +33,7 @@ This README is the map. Every question a reviewer or a new engineer usually asks
 The repository holds two separate things, with **separate entry points**:
 
 - **The product plane** is the URL shortener: a Java service, always on, used by end users. It's started with `java -jar`, `scripts/local.sh` or a container.
-- **The delivery plane** is the **delivery orchestrator**: a development-time tool in `orchestrator/` (Python, planned for Release 2), run on demand by an engineer with `orchestrate`.
+- **The delivery plane** is the **delivery orchestrator**: a development-time tool in `orchestrator/` (Python, built in Release 2), run on demand by an engineer with `orchestrate`.
 
 The orchestrator turns a request into specs, tickets, code and pull requests. **It never deploys, and it never connects to a running service.** Its test stages start their own temporary copy of the service. The only way a change reaches the product is a pull request that **a human reviews and merges** ([ADR 0007](docs/adr/0007-delivery-orchestrator.md)).
 
