@@ -7,17 +7,17 @@ spec: 0001
 
 # Plan 0001: Integration testing
 
-How we prove that the parts of the shortener work **together**, across real boundaries (HTTP, Spring wiring, SQLite, Flyway, and later containers and PostgreSQL), as the system grows from v1 through the production-readiness and reliability waves. This plan is tracked: each phase has a status, an exit criterion, and the issues that deliver it.
+How we prove that the parts of the shortener work **together**, across real boundaries (HTTP, Spring wiring, SQLite, Flyway, and later containers and PostgreSQL), as the system grows from v1 through the production-readiness and reliability releases. This plan is tracked: each phase has a status, an exit criterion, and the issues that deliver it.
 
 ## 1. Definitions
 
 | Level | What it exercises | Runs with | Naming | Speed target |
 |---|---|---|---|---|
 | **Unit** | One unit in isolation: a Rule, the Rule Set, the Short Code generator | Maven **Surefire** (`test` phase) | `*Test` | milliseconds |
-| **Integration** | The real application wired by Spring, over real infrastructure: HTTP layer, the create-Link service, Link Store, SQLite file, Flyway migrations | Maven **Failsafe** (`integration-test` / `verify` phases) | `*IT` | < 30 s for the whole suite in wave 1 |
-| **System / container** (wave 2+) | The packaged artifact or Docker image, over a real network socket | Failsafe + Testcontainers | `*SystemIT` | minutes |
+| **Integration** | The real application wired by Spring, over real infrastructure: HTTP layer, the create-Link service, Link Store, SQLite file, Flyway migrations | Maven **Failsafe** (`integration-test` / `verify` phases) | `*IT` | < 30 s for the whole suite in Release 1 |
+| **System / container** (Release 2+) | The packaged artifact or Docker image, over a real network socket | Failsafe + Testcontainers | `*SystemIT` | minutes |
 | **Browser** (since #8) | The running app in real Chrome: JavaScript behaviour, accessibility wiring, Lighthouse | Playwright + Lighthouse in `e2e/`, CI job **Browser checks** | `e2e/*.js` | ~1 min |
-| **Performance & resilience** (wave 3) | Load and failure behaviour | Separate tooling (R13, R14), not part of `verify` | — | — |
+| **Performance & resilience** (Release 3) | Load and failure behaviour | Separate tooling (R13, R14), not part of `verify` | — | — |
 
 `./mvnw verify` runs **unit and integration** tests, locally and in CI. A PR cannot merge unless both pass.
 
@@ -44,7 +44,7 @@ How we prove that the parts of the shortener work **together**, across real boun
 
 ## 4. Phases
 
-| Phase | Wave | Scope | Exit criterion | Delivered by | Status |
+| Phase | Release | Scope | Exit criterion | Delivered by | Status |
 |---|---|---|---|---|---|
 | **P1: Walking skeleton** | 1 | Create → Redirect → 404 over the full context; persistence across a restart; Flyway migrates an empty database; one real-HTTP smoke test; production configuration (`BASE_URL` default) | All #3 acceptance criteria covered by `*IT` tests; green in CI | #3 | done ([#12](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/12)) |
 | **P2: Collisions** | 1 | Scripted Collision then success; all 5 attempts collide → `503` | #4 criteria covered | #4 | done ([#18](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/18)) |
@@ -57,7 +57,7 @@ How we prove that the parts of the shortener work **together**, across real boun
 
 **Status values:** `planned` → `not started` → `in progress` → `done` (link the PR).
 
-## 5. Traceability matrix (wave 1)
+## 5. Traceability matrix (Release 1)
 
 | Issue | Acceptance criterion | Integration test (class → method) | Status |
 |---|---|---|---|
@@ -105,7 +105,7 @@ Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 
 - **Entry (per ticket):** the ticket's acceptance criteria are listed in this plan's matrix before implementation starts.
 - **Exit (per ticket):** every matrix row for the ticket is ☑, `./mvnw verify` is green in CI, and the PR description links the tests.
-- **Exit (plan, for wave 1):** P1–P4 done. The plan stays `active` across later waves and is marked `done` only when P5–P8 have been delivered or explicitly dropped (with a reason recorded here).
+- **Exit (plan, for Release 1):** P1–P4 done. The plan stays `active` across later releases and is marked `done` only when P5–P8 have been delivered or explicitly dropped (with a reason recorded here).
 
 ## 7. Risks
 
@@ -113,7 +113,7 @@ Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 |---|---|
 | A slow Spring context makes the suite sluggish | Reuse the context across test classes (Spring's test context cache); keep scripted-generator configuration identical between classes |
 | Shared context state (database, generator) leaks between tests | Reset before every test (Flyway clean + migrate, empty script); proven by a mutation check that disabling the reset breaks the suite (#14) |
-| SQLite file locking between parallel tests | One database file per Spring test context; integration tests run sequentially in wave 1 |
+| SQLite file locking between parallel tests | One database file per Spring test context; integration tests run sequentially in Release 1 |
 | `MockMvcTester` hides servlet-container behaviour (headers, redirects) | The single real-HTTP smoke test (`RedirectOverHttpIT`) |
 | JVM tests can't execute the page's JavaScript (HTMX swaps, copy button, focus, announcements) | `e2e/` browser checks in real Chrome, run in CI (job **Browser checks**) on every PR since #8 |
 | Behaviour differs between SQLite and PostgreSQL | Contract suite in P6 before the R5 migration ships |
@@ -121,4 +121,4 @@ Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 ## 8. Tracking
 
 - Tracked by GitHub issue [#10](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/10) (label `plan`). Each phase's status is updated here in the PR that changes it.
-- Reviewed at the end of each wave.
+- Reviewed at the end of each release.

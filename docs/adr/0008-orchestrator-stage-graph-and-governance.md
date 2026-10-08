@@ -5,7 +5,7 @@ date: 2026-10-07
 
 # The orchestrator's stage graph, gates and human approval model
 
-The orchestrator (ADR 0007) runs every request through one explicit stage graph. The graph is the workflow that delivered wave 1 by hand, made explicit and enforced: each stage has an **entry gate** (its prerequisites passed) and an **exit gate** (its output checked). A human approves at exactly the points where a human decided by hand.
+The orchestrator (ADR 0007) runs every request through one explicit stage graph. The graph is the workflow that delivered Release 1 by hand, made explicit and enforced: each stage has an **entry gate** (its prerequisites passed) and an **exit gate** (its output checked). A human approves at exactly the points where a human decided by hand.
 
 ```
 request / Issue → ① INTAKE → ② REQUIREMENTS → ③ DESIGN → ④ DECOMPOSE

@@ -17,7 +17,7 @@ A guide for an engineer joining the project, or a reviewer who wants to run it a
 | **JDK 25** | Building and running the service | `brew install openjdk@25`, or Temurin 25 |
 | Node.js 24 (as in CI) and Chrome | Browser checks and Lighthouse (`e2e/`) | `brew install node`, plus Google Chrome |
 | `gh` (GitHub CLI) | Issues, PRs, the delivery board | `brew install gh && gh auth login` |
-| Python 3.12+ and `uv` | The delivery orchestrator (from wave 2) | `brew install uv` |
+| Python 3.12+ and `uv` | The delivery orchestrator (from Release 2) | `brew install uv` |
 
 Maven isn't needed: the Maven Wrapper (`./mvnw`) downloads it and every dependency.
 
@@ -71,7 +71,7 @@ Browser checks and Lighthouse, against a running app:
 | `src/main/resources/templates/`, `static/` | Thymeleaf page and fragments, CSS, self-hosted HTMX ([ADR 0006](adr/0006-htmx-progressive-enhancement-web-page.md)) |
 | `src/test/` | `*Test`: unit tests. `*IT`: integration tests that extend `IntegrationTest`, which resets the database before every test and controls Short Codes through a scripted generator |
 | `e2e/` | Playwright browser checks and Lighthouse (≥ 90 in every category) |
-| `orchestrator/` | The delivery orchestrator (wave 2; see [ADRs 0007–0011](adr/0007-delivery-orchestrator.md)) |
+| `orchestrator/` | The delivery orchestrator (Release 2; see [ADRs 0007–0011](adr/0007-delivery-orchestrator.md)) |
 
 ## 5. How a change is made
 
@@ -92,11 +92,11 @@ Deferred ideas are never dropped silently: they go into [`docs/roadmap.md`](road
 
 ## 6. House rules worth knowing early
 
-- **Front end:** no inline scripts, inline styles or third-party assets. Everything is self-hosted ([ADR 0017](adr/0017-strict-content-security-policy-and-security-headers.md), from wave 3).
+- **Front end:** no inline scripts, inline styles or third-party assets. Everything is self-hosted ([ADR 0017](adr/0017-strict-content-security-policy-and-security-headers.md), from Release 3).
 - **Privacy:** never store or log client IP addresses ([ADRs 0013](adr/0013-clicks-store-minimal-non-personal-data.md) and [0016](adr/0016-in-app-rate-limiting-per-client-ip.md)).
 - **Secrets:** never in the repository, URLs or logs.
 - **The maintainer's local service on :8000** may be in use. Run your own copy on another port and data directory instead of restarting it.
 
-## 7. The delivery orchestrator (from wave 2)
+## 7. The delivery orchestrator (from Release 2)
 
 The orchestrator automates the chain in section 5 under human control. It's a separate, development-time tool: it ends at a PR that's ready to merge, never deploys, and never connects to a running service. The design is in [ADRs 0007–0011](adr/0007-delivery-orchestrator.md). Usage instructions will be added here when it's built.

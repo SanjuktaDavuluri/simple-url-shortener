@@ -6,7 +6,7 @@ A small, backend-focused URL shortener, built in the open as a **complete SDLC c
 2. **Brownfield**: evolving the running system feature by feature.
 3. **Reliability**: making it production-grade, with measurements.
 
-> **Status:** **Wave 1 (greenfield) complete.** [Spec 0001](docs/specs/0001-v1-core.md) is implemented: the JSON API (create, Redirect, URL Rules, Collision handling) and the web page (works with or without JavaScript; Lighthouse 100 in every category). **Waves 2 and 3 are designed** (ADRs 0007–0019); wave 2 (delivery orchestrator, analytics, operability) is next on the [roadmap](docs/roadmap.md). **Track the work:** [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) · [milestones](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestones).
+> **Status:** **Release 1 (greenfield) complete**, tagged [`v1.0.0`](docs/releases/v1.0.0.md). [Spec 0001](docs/specs/0001-v1-core.md) is implemented: the JSON API (create, Redirect, URL Rules, Collision handling) and the web page (works with or without JavaScript; Lighthouse 100 in every category). **Releases 2 and 3 are designed** (ADRs 0007–0019); Release 2 (delivery orchestrator, analytics, operability) is next on the [roadmap](docs/roadmap.md). **Track the work:** [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) · [milestones](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestones).
 
 ## Reviewer's guide: start here
 
@@ -20,7 +20,8 @@ This README is the map. Every question a reviewer or a new engineer usually asks
 | Follow a request through the code | [`docs/architecture.md`](docs/architecture.md): sequence diagrams for create and Redirect |
 | Understand *why* it is built this way | [Decisions (ADRs)](#decisions) below · [`docs/adr/`](docs/adr/) |
 | Understand the delivery orchestrator | [The delivery orchestrator](#the-delivery-orchestrator) below · ADRs [0007](docs/adr/0007-delivery-orchestrator.md)–[0011](docs/adr/0011-orchestrator-replanning-and-lineage.md) |
-| See what's planned, deferred, and why | [`docs/roadmap.md`](docs/roadmap.md): waves, ordering and a re-prioritisation log |
+| See what each Release delivered | [Release notes](docs/releases/) · [`CHANGELOG.md`](CHANGELOG.md) |
+| See what's planned, deferred, and why | [`docs/roadmap.md`](docs/roadmap.md): releases, ordering and a re-prioritisation log |
 | Trace a feature from requirement to code | [Specs](docs/specs/) → [Issues](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues?q=is%3Aissue) → [pull requests](https://github.com/SanjuktaDavuluri/simple-url-shortener/pulls?q=is%3Apr) → commits. Each PR says `Closes #n` |
 | See how it is tested | [Integration-testing plan](docs/plans/0001-integration-testing.md) · `src/test/` · [browser checks](e2e/README.md) · [CI workflow](.github/workflows/ci.yml) |
 | Run it or contribute | [Quick start](#quick-start) below · [onboarding guide](docs/onboarding.md) |
@@ -31,7 +32,7 @@ This README is the map. Every question a reviewer or a new engineer usually asks
 The repository holds two separate things, with **separate entry points**:
 
 - **The product plane** is the URL shortener: a Java service, always on, used by end users. It's started with `java -jar`, `scripts/local.sh` or a container.
-- **The delivery plane** is the **delivery orchestrator**: a development-time tool in `orchestrator/` (Python, planned for wave 2), run on demand by an engineer with `orchestrate`.
+- **The delivery plane** is the **delivery orchestrator**: a development-time tool in `orchestrator/` (Python, planned for Release 2), run on demand by an engineer with `orchestrate`.
 
 The orchestrator turns a request into specs, tickets, code and pull requests. **It never deploys, and it never connects to a running service.** Its test stages start their own temporary copy of the service. The only way a change reaches the product is a pull request that **a human reviews and merges** ([ADR 0007](docs/adr/0007-delivery-orchestrator.md)).
 
@@ -73,7 +74,7 @@ flowchart LR
 
 ### Planned ([roadmap](docs/roadmap.md))
 
-| Wave | Feature | Decided in |
+| Release | Feature | Decided in |
 |---|---|---|
 | 2 | Click analytics: Clicks recorded off the Redirect path; per-Link stats visible only to the Link's creator | ADRs [0012](docs/adr/0012-clicks-recorded-asynchronously.md), [0013](docs/adr/0013-clicks-store-minimal-non-personal-data.md), [0014](docs/adr/0014-creator-only-stats-via-manage-token.md) |
 | 2 | Operability: health checks, metrics, structured logs; container image; OpenAPI contract | [ADR 0015](docs/adr/0015-observability-actuator-micrometer-structured-logs.md) · roadmap R11, R21 |
@@ -83,7 +84,7 @@ flowchart LR
 
 ## The delivery orchestrator
 
-*Planned for wave 2 (roadmap R18). It is designed, and not yet built.*
+*Planned for Release 2 (roadmap R18). It is designed, and not yet built.*
 
 An engineer starts a run from a GitHub Issue: `orchestrate start <issue>`. The orchestrator then drives the request through fixed stages: **intake → requirements → design → decompose → per-ticket lanes (implement → document → PR) → release readiness → close-out**. Each stage has an exit gate. A human approves the spec, any ADRs, the tickets and every merge. Each run leaves a tamper-evident event log and a report in the repository, and delivery metrics are derived from them.
 
@@ -162,8 +163,8 @@ src/main/resources/          configuration, Flyway migrations, Thymeleaf templat
 src/test/                    unit tests (*Test) and integration tests (*IT)
 e2e/                         browser checks (Playwright) and Lighthouse audits
 scripts/                     local.sh (run the app in the background), board-status.sh (delivery board)
-docs/                        ADRs, specs, plans, roadmap, architecture, onboarding
-orchestrator/                the delivery orchestrator (planned, wave 2)
+docs/                        ADRs, specs, plans, roadmap, releases, architecture, onboarding
+orchestrator/                the delivery orchestrator (planned, Release 2)
 CONTEXT.md · CLAUDE.md       domain glossary · project charter
 ```
 
@@ -173,22 +174,23 @@ CONTEXT.md · CLAUDE.md       domain glossary · project charter
 |---|---|---|
 | Domain glossary | [`CONTEXT.md`](CONTEXT.md) | One shared vocabulary for code, tickets and docs |
 | Architecture Decision Records | [`docs/adr/`](docs/adr/) | Significant decisions only, each with the options weighed and why one won |
-| Roadmap | [`docs/roadmap.md`](docs/roadmap.md) | Every deferred item, prioritised into waves and tracked to completion |
+| Roadmap | [`docs/roadmap.md`](docs/roadmap.md) | Every deferred item, prioritised into releases and tracked to completion |
 | Architecture | [`docs/architecture.md`](docs/architecture.md) | The two planes and request flows (Mermaid) |
 | Onboarding | [`docs/onboarding.md`](docs/onboarding.md) | Setup, repo tour and how work flows, for a new engineer or reviewer |
 | Specs | [`docs/specs/`](docs/specs/) | Numbered requirements with a status lifecycle; each traces to a roadmap item |
-| Tickets | GitHub Issues, on the [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) and grouped by [milestone](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestones) per wave | Vertical-slice tickets; every change traces to one |
+| Tickets | GitHub Issues, on the [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) and grouped by [milestone](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestones) per release | Vertical-slice tickets; every change traces to one |
 | Tests & CI | `src/test/`, GitHub Actions | Built test-first (TDD); unit + integration tests; CI gates every PR |
 | Plans | [`docs/plans/`](docs/plans/) | How cross-cutting work is verified and delivered, e.g. the [integration-testing plan](docs/plans/0001-integration-testing.md) |
-| Changelog, runbook, incidents | *(introduced in later phases)* | Release history and operational evidence |
+| Changelog and release notes | [`CHANGELOG.md`](CHANGELOG.md), [`docs/releases/`](docs/releases/) | One tagged version per Release, with notes: what shipped, evidence, what was deferred, lessons learned |
+| Runbook, incidents | *(introduced in later Releases)* | Operational evidence |
 
 Artifacts are introduced **when their phase arrives**, so the history shows them being adopted rather than scaffolded up front. Work is driven with [Matt Pocock's engineering skills](https://github.com/mattpocock/skills) for Claude Code: grilling, domain modeling, spec, tickets, TDD and code review.
 
 ## Roadmap
 
-| Wave | Theme |
+| Release | Theme |
 |---|---|
-| 1 ✅ | Greenfield v1: build, all tests green, CI |
+| 1 ✅ `v1.0.0` | Greenfield v1: build, all tests green, CI ([release notes](docs/releases/v1.0.0.md)) |
 | 2 | Delivery orchestrator, click analytics, operability (health, metrics, logs, container, OpenAPI) |
 | 3 | Hardening and reliability evidence: security gaps closed, risk register, load and failure testing, expiring links case study, scaling path, write-ups |
 | later | PostgreSQL, horizontal scaling, custom aliases, edit/delete, and more, each with its reason for waiting |
