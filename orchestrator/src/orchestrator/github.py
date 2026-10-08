@@ -45,13 +45,21 @@ class GitHub(Protocol):
     def label_events(self, number: int) -> list[LabelEvent]: ...
     def is_maintainer(self, user: str) -> bool: ...
     def file_url(self, ref: str, path: str) -> str: ...
+    def milestone_for_release(self, release: str) -> str | None: ...
+    def create_issue(
+        self, title: str, body: str, labels: tuple[str, ...], milestone: str | None
+    ) -> int: ...
+    def add_blocked_by(self, issue: int, blocker: int) -> None: ...
+    def add_to_board(self, issue: int, fields: dict[str, str]) -> None: ...
 
 
 class GhCliGitHub:
     """Uses the engineer's existing `gh` login; nothing is stored."""
 
-    def __init__(self, repo_root: Path) -> None:
+    def __init__(self, repo_root: Path, board_owner: str = "", board_number: int = 0) -> None:
         self.repo_root = repo_root
+        self.board_owner = board_owner
+        self.board_number = board_number
 
     def _gh(self, *args: str) -> str:
         result = subprocess.run(
@@ -112,3 +120,73 @@ class GhCliGitHub:
 
     def file_url(self, ref: str, path: str) -> str:
         return f"https://github.com/{self.repo}/blob/{ref}/{path}"
+
+    def milestone_for_release(self, release: str) -> str | None:
+        milestones = self._api(f"repos/{self.repo}/milestones?state=open")
+        return next(
+            (m["title"] for m in milestones if m["title"].startswith(f"Release {release}:")), None
+        )
+
+    def create_issue(
+        self, title: str, body: str, labels: tuple[str, ...], milestone: str | None
+    ) -> int:
+        args = ["issue", "create", "--title", title, "--body", body]
+        for label in labels:
+            args += ["--label", label]
+        if milestone:
+            args += ["--milestone", milestone]
+        url = self._gh(*args).strip()
+        return int(url.rsplit("/", 1)[1])
+
+    def add_blocked_by(self, issue: int, blocker: int) -> None:
+        blocker_id = self._api(f"repos/{self.repo}/issues/{blocker}")["id"]
+        self._gh(
+            "api",
+            "-X",
+            "POST",
+            f"repos/{self.repo}/issues/{issue}/dependencies/blocked_by",
+            "-F",
+            f"issue_id={blocker_id}",
+        )
+
+    def add_to_board(self, issue: int, fields: dict[str, str]) -> None:
+        """Adds the Issue to the delivery board. Options match by name, or by `<value> ` prefix."""
+        if not self.board_owner or not self.board_number:
+            return
+        board = ["--owner", self.board_owner]
+        number = str(self.board_number)
+        url = f"https://github.com/{self.repo}/issues/{issue}"
+        item = json.loads(
+            self._gh("project", "item-add", number, *board, "--url", url, "--format", "json")
+        )
+        project_id = json.loads(self._gh("project", "view", number, *board, "--format", "json"))[
+            "id"
+        ]
+        field_list = json.loads(
+            self._gh("project", "field-list", number, *board, "--format", "json")
+        )
+        for field in field_list["fields"]:
+            wanted = fields.get(field["name"])
+            if wanted is None or "options" not in field:
+                continue
+            option = next(
+                (
+                    o
+                    for o in field["options"]
+                    if o["name"] == wanted or o["name"].startswith(f"{wanted} ")
+                ),
+                None,
+            )
+            if option:
+                self._gh(
+                    "project",
+                    "item-edit",
+                    "--id",
+                    item["id"],
+                    "--project-id",
+                    project_id,
+                    "--field-id",
+                    field["id"],
+                    "--single-select-option-id",
+                    option["id"],
+                )

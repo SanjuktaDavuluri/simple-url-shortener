@@ -257,7 +257,11 @@ def _real_deps() -> Deps:
         ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
     )
     root = Path(top.stdout.strip())
-    return Deps(repo_root=root, github=GhCliGitHub(root))
+    settings = load_settings(root)
+    return Deps(
+        repo_root=root,
+        github=GhCliGitHub(root, settings.board_owner, settings.board_number),
+    )
 
 
 def main(argv: Sequence[str] | None = None, *, deps: Deps | None = None) -> int:

@@ -28,6 +28,18 @@ def roadmap_items(workspace: Workspace) -> set[str]:
     return set(ROADMAP_ROW.findall(path.read_text())) if path.exists() else set()
 
 
+def roadmap_release(workspace: Workspace, item: str | None) -> str | None:
+    """The Release a roadmap item is planned in (the table's third column), if it is a number."""
+    path = workspace.repo_root / "docs" / "roadmap.md"
+    if not item or not path.exists():
+        return None
+    for line in path.read_text().splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) > 2 and cells[0] == item and cells[2].isdigit():
+            return cells[2]
+    return None
+
+
 def issue_artifact(issue: Issue) -> dict[str, Any]:
     labels = sorted(issue.labels)
     return {
