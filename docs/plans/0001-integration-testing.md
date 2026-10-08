@@ -98,6 +98,13 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #7 | Copy button present but hidden without JS | `WebPageHtmxIT` → `theShortUrlHasACopyButtonThatStaysHiddenWithoutJavaScript` | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) |
 | #7 | Persistent status region outside the fragment | `WebPageHtmxIT` → `thePageHasAStatusRegionOutsideTheFragmentForAnnouncements` | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) |
 | #7 | **In a real browser:** no reload, copy + "Copied ✓", clipboard, announcement, inline 422, focus to field, no JS errors; no-JS path works | Manual Playwright + Chrome run recorded in PR for #7 (14/14); **automated in CI by #8** | ☑ [#20](https://github.com/SanjuktaDavuluri/simple-url-shortener/pull/20) (manual); automated in CI by #8 |
+| #51 | **Unit (spec 0003 seam 2):** Referrer Host is the lower-case host without port, user info, path or query | `ClickClassifierTest` → `theReferrerHostIsTheLowerCaseHostWithoutPortUserInfoPathOrQuery` | ☐ #51 |
+| #51 | **Unit:** a missing, malformed or non-`http(s)` Referer (e.g. `android-app:`, `ftp:`) gives no Referrer Host | `ClickClassifierTest` → `aMissingRefererGivesNoReferrerHost`, `aMalformedRefererGivesNoReferrerHost`, `aRefererThatIsNotAnHttpOrHttpsUrlGivesNoReferrerHost` | ☐ #51 |
+| #51 | **Unit:** Googlebot, Bingbot, Slackbot, Twitterbot, facebookexternalhit, WhatsApp and Discordbot are bots | `ClickClassifierTest` → `knownCrawlersAndLinkPreviewFetchersAreBotsOnDesktop` | ☐ #51 |
+| #51 | **Unit:** the bot pattern list is kept in one place, matched case-insensitively, with its own tests | `BotPatternsTest` (4 tests) | ☐ #51 |
+| #51 | **Unit:** a crawler whose user agent starts with `Mozilla/` is still a bot (bot before browser) | `ClickClassifierTest` → `aBotWhoseUserAgentStartsWithMozillaIsStillABot` | ☐ #51 |
+| #51 | **Unit:** Chrome and Firefox on desktop are browser/desktop; Safari on iPhone and Chrome on Android are browser/mobile | `ClickClassifierTest` → `desktopBrowsersAreBrowserAgentsOnDesktop`, `mobileBrowsersAreBrowserAgentsOnMobile`, `theDeviceClassIsMobileOnlyWithAMobileMarker` | ☐ #51 |
+| #51 | **Unit:** `curl`, `wget`, `python-requests` and an empty or missing user agent are other/desktop | `ClickClassifierTest` → `toolsAndAMissingUserAgentAreOtherAgentsOnDesktop` | ☐ #51 |
 
 Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 
