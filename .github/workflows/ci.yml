@@ -74,11 +74,15 @@ jobs:
         working-directory: e2e
         run: npm ci
 
+      - name: Lighthouse gate's scoring rule (unit tests)
+        working-directory: e2e
+        run: npm test
+
       - name: Browser checks (real Chrome)
         working-directory: e2e
         run: npm run browser-checks
 
-      - name: Lighthouse (every category >= 90, mobile and desktop)
+      - name: Lighthouse (median of 3 runs >= 90 in every category, mobile and desktop)
         working-directory: e2e
         env:
           CHROME_PATH: /usr/bin/google-chrome
