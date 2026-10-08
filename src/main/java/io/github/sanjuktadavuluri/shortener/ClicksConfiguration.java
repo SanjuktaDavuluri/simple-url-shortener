@@ -20,6 +20,10 @@ class ClicksConfiguration {
   QueuedClickRecorder clickRecorder(ClickStore store, ShortenerProperties properties) {
     ShortenerProperties.Clicks clicks = properties.clicks();
     return new QueuedClickRecorder(
-        store, clicks.queueCapacity(), clicks.batchSize(), clicks.flushInterval());
+        store,
+        clicks.queueCapacity(),
+        clicks.batchSize(),
+        clicks.flushInterval(),
+        clicks.shutdownTimeout());
   }
 }

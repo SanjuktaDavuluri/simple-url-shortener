@@ -31,8 +31,9 @@ import org.slf4j.LoggerFactory;
  * Spec 0003 seam 4: the queued Click Recorder with a stand-in Click Store (the in-app fault seam
  * R14 allows). Issue #52 (story 13): Clicks are saved in batches, one Click Store call per batch,
  * from one background writer. Issue #53 (stories 3, 14–17, 19, 20): loss is bounded, counted and
- * logged with counts only. A ticker the test moves by hand times the drop warnings, and a stand-in
- * store that blocks until released orders the writer, so no test guesses at timing.
+ * logged with counts only. Issue #55 (story 18): stop saves what is queued, within the shutdown
+ * timeout. A ticker the test moves by hand times the drop warnings, and a stand-in store that
+ * blocks until released orders the writer, so no test guesses at timing.
  */
 class QueuedClickRecorderTest {
 
@@ -43,6 +44,12 @@ class QueuedClickRecorderTest {
 
   /** Never reached by a passing test: only stops a recorder that waits from hanging the build. */
   private static final Duration HANG_GUARD = Duration.ofSeconds(10);
+
+  /** The shutdown timeout of every recorder here: shorter than the hang guard. */
+  private static final Duration SHUTDOWN_TIMEOUT = Duration.ofMillis(300);
+
+  /** How far past the shutdown timeout a stop may still count as returning within it. */
+  private static final Duration STOP_SLACK = Duration.ofSeconds(2);
 
   private static final String SHORT_CODE = "Ab3xK9q";
   private static final String REFERRER_HOST = "news.example.org";
@@ -304,11 +311,54 @@ class QueuedClickRecorderTest {
     assertThat(recorder.stats()).isEqualTo(new ClickRecorderStats(0, 3, 1));
   }
 
+  // Issue #55: stop saves what is queued, within the shutdown timeout.
+
+  @Test
+  void stopSavesEveryQueuedClickWhenTheStoreKeepsUp() {
+    recorder = startedRecorder(100, 3, LONG_FLUSH_INTERVAL);
+    List<Click> clicks = clicks(7);
+    clicks.forEach(recorder::record);
+
+    recorder.stop();
+
+    assertThat(store.batches().stream().flatMap(List::stream)).containsExactlyElementsOf(clicks);
+    assertThat(recorder.stats()).isEqualTo(new ClickRecorderStats(7, 0, 0));
+    assertThat(recorder.isRunning()).isFalse();
+    assertThat(warnings()).isEmpty();
+  }
+
+  @Test
+  void
+      withTheStoreBlockedBeyondTheShutdownTimeoutStopReturnsWithinItAndCountsTheUnsavedAsDropped() {
+    store.block();
+    recorder = startedRecorder(100, 1, LONG_FLUSH_INTERVAL);
+    recorder.record(click(0));
+    store.awaitSaveStarted();
+    clicks(1, 5).forEach(recorder::record);
+
+    long startedAt = System.nanoTime();
+    assertTimeoutPreemptively(HANG_GUARD, () -> recorder.stop());
+    Duration took = Duration.ofNanos(System.nanoTime() - startedAt);
+
+    // Click 0 was being saved and four more were queued: none of them was saved.
+    assertThat(took).isGreaterThanOrEqualTo(SHUTDOWN_TIMEOUT);
+    assertThat(took).isLessThan(SHUTDOWN_TIMEOUT.plus(STOP_SLACK));
+    assertThat(recorder.stats()).isEqualTo(new ClickRecorderStats(0, 5, 0));
+    assertThat(recorder.isRunning()).isFalse();
+    assertThat(warnings()).singleElement().asString().contains("Dropped 5 Clicks");
+  }
+
   private QueuedClickRecorder startedRecorder(
       int queueCapacity, int batchSize, Duration flushInterval) {
     QueuedClickRecorder started =
         new QueuedClickRecorder(
-            store, new ArrayDeque<>(), queueCapacity, batchSize, flushInterval, ticker::get);
+            store,
+            new ArrayDeque<>(),
+            queueCapacity,
+            batchSize,
+            flushInterval,
+            SHUTDOWN_TIMEOUT,
+            ticker::get);
     started.start();
     return started;
   }
@@ -316,12 +366,19 @@ class QueuedClickRecorderTest {
   /** A recorder whose writer never runs, so its queue only fills. */
   private QueuedClickRecorder unstartedRecorder(int queueCapacity, Duration flushInterval) {
     return new QueuedClickRecorder(
-        store, new ArrayDeque<>(), queueCapacity, 500, flushInterval, ticker::get);
+        store,
+        new ArrayDeque<>(),
+        queueCapacity,
+        500,
+        flushInterval,
+        SHUTDOWN_TIMEOUT,
+        ticker::get);
   }
 
   /** An unstarted recorder with a capacity of one, on this queue and clock. */
   private QueuedClickRecorder recorderWith(Queue<Click> queue, LongSupplier clock) {
-    return new QueuedClickRecorder(store, queue, 1, 500, LONG_FLUSH_INTERVAL, clock);
+    return new QueuedClickRecorder(
+        store, queue, 1, 500, LONG_FLUSH_INTERVAL, SHUTDOWN_TIMEOUT, clock);
   }
 
   private List<String> warnings() {

@@ -30,7 +30,10 @@ import org.springframework.context.SmartLifecycle;
  * next line, which the writer logs once the interval has passed, or on stop.
  *
  * <p>It runs as a {@link SmartLifecycle} bean in a phase that starts before the web server and
- * stops after it.
+ * stops after it, so Redirects served while the server drains are still recorded. On stop the
+ * writer saves everything queued, for at most the <em>shutdown timeout</em>; Clicks still unsaved
+ * then are counted as dropped and logged (counts only), and the writer is left to end (spec 0003
+ * story 18).
  */
 public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle {
 
@@ -43,6 +46,7 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
   private final int queueCapacity;
   private final int batchSize;
   private final long flushIntervalNanos;
+  private final Duration shutdownTimeout;
 
   /** Times the drop warnings, in nanoseconds ({@code System::nanoTime} in production). */
   private final LongSupplier ticker;
@@ -69,6 +73,16 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
   private long dropped;
   private int flushesWaiting;
   private boolean running;
+
+  /**
+   * Set while stop waits for the writer to save what is queued: the writer ends once it is empty.
+   */
+  private boolean stopping;
+
+  /**
+   * The thread saving batches. A writer that is no longer this one was given up on by stop, which
+   * already counted its batch as dropped.
+   */
   private Thread writer;
 
   /** Drops not yet carried by a warning line. */
@@ -78,13 +92,18 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
   private long lastWarningAt;
 
   public QueuedClickRecorder(
-      ClickStore store, int queueCapacity, int batchSize, Duration flushInterval) {
+      ClickStore store,
+      int queueCapacity,
+      int batchSize,
+      Duration flushInterval,
+      Duration shutdownTimeout) {
     this(
         store,
         new ArrayDeque<>(Math.min(queueCapacity, 1024)),
         queueCapacity,
         batchSize,
         flushInterval,
+        shutdownTimeout,
         System::nanoTime);
   }
 
@@ -98,16 +117,21 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
       int queueCapacity,
       int batchSize,
       Duration flushInterval,
+      Duration shutdownTimeout,
       LongSupplier ticker) {
     if (queueCapacity < 1 || batchSize < 1 || !flushInterval.isPositive()) {
       throw new IllegalArgumentException(
           "Queue capacity, batch size and flush interval must be positive");
+    }
+    if (shutdownTimeout.isNegative()) {
+      throw new IllegalArgumentException("Shutdown timeout must not be negative");
     }
     this.store = Objects.requireNonNull(store, "store");
     this.queue = Objects.requireNonNull(queue, "queue");
     this.queueCapacity = queueCapacity;
     this.batchSize = batchSize;
     this.flushIntervalNanos = flushInterval.toNanos();
+    this.shutdownTimeout = shutdownTimeout;
     this.ticker = Objects.requireNonNull(ticker, "ticker");
   }
 
@@ -210,8 +234,8 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
   }
 
   /**
-   * Saves every Click recorded so far, then returns. Used by tests (instead of sleeping) and by
-   * shutdown. Returns at once if the writer isn't running.
+   * Saves every Click recorded so far, then returns. Used by tests instead of sleeping. Returns at
+   * once if the writer isn't running.
    */
   public void flush() {
     lock.lock();
@@ -256,29 +280,74 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
     log.info("Click writer started");
   }
 
+  /**
+   * Lets the writer save everything queued, waiting at most the shutdown timeout. Clicks still
+   * unsaved then, queued or in the batch being saved, are counted as dropped with one warning, and
+   * the writer is interrupted and left to end: whatever its save does, it no longer counts.
+   */
   @Override
   public void stop() {
-    Thread stopping;
+    Thread draining;
     lock.lock();
     try {
-      if (!running) {
+      if (!running || stopping) {
         return;
       }
+      stopping = true;
+      draining = writer;
+      work.signalAll();
+    } finally {
+      lock.unlock();
+    }
+    boolean drained = awaitEnd(draining);
+    long unsaved;
+    lock.lock();
+    try {
+      unsaved = drained ? 0 : pending();
+      if (!drained) {
+        dropped += unsaved;
+        finished = accepted;
+        settled = accepted;
+        queue.clear();
+      }
       running = false;
-      stopping = writer;
+      stopping = false;
       writer = null;
       work.signalAll();
       batchDone.signalAll();
     } finally {
       lock.unlock();
     }
-    try {
-      stopping.join();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
+    if (!drained) {
+      draining.interrupt();
     }
     warnHeldBackDrops();
+    if (unsaved > 0) {
+      warnUnsavedOnStop(unsaved);
+    }
     log.info("Click writer stopped");
+  }
+
+  /** Waits up to the shutdown timeout for the writer to end; true if it did. */
+  private boolean awaitEnd(Thread draining) {
+    try {
+      return draining.join(shutdownTimeout);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return !draining.isAlive();
+    }
+  }
+
+  private void warnUnsavedOnStop(long count) {
+    try {
+      // Counts only: never a Short Code, referrer, user agent or Long URL (ADR 0013, ADR 0015).
+      log.warn(
+          "Dropped {} Clicks still unsaved when the shutdown timeout of {} passed",
+          count,
+          shutdownTimeout);
+    } catch (RuntimeException e) {
+      // A failing log never breaks shutdown.
+    }
   }
 
   @Override
@@ -311,28 +380,28 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
 
   /**
    * Waits for the first Click, then up to the flush interval for the batch to fill (no longer than
-   * it takes a flush to be asked for). While drops are held back it wakes at least once per flush
-   * interval, with an empty batch, so their warning is logged. Returns nothing when the recorder
-   * stops.
+   * it takes a flush or a stop to be asked for). While drops are held back it wakes at least once
+   * per flush interval, with an empty batch, so their warning is logged. Returns nothing when the
+   * recorder is stopping and the queue is empty, or when stop gave up on this writer.
    */
   private Optional<List<Click>> nextBatch() throws InterruptedException {
     lock.lock();
     try {
-      while (running && queue.isEmpty()) {
+      while (isCurrentWriter() && !stopping && queue.isEmpty()) {
         if (unwarnedDrops > 0) {
           work.awaitNanos(flushIntervalNanos);
           if (queue.isEmpty()) {
-            return running ? Optional.of(List.of()) : Optional.empty();
+            return isCurrentWriter() && !stopping ? Optional.of(List.of()) : Optional.empty();
           }
         } else {
           work.await();
         }
       }
-      if (!running) {
+      if (!isCurrentWriter() || queue.isEmpty()) {
         return Optional.empty();
       }
       long deadline = System.nanoTime() + flushIntervalNanos;
-      while (running && flushesWaiting == 0 && queue.size() < batchSize) {
+      while (!stopping && flushesWaiting == 0 && queue.size() < batchSize) {
         long remaining = deadline - System.nanoTime();
         if (remaining <= 0) {
           break;
@@ -349,9 +418,15 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
     }
   }
 
+  /** Guarded by lock. False once stop has given up on this thread, or the recorder has stopped. */
+  private boolean isCurrentWriter() {
+    return writer == Thread.currentThread();
+  }
+
   /**
    * Saves one batch with one Click Store call. A failure costs the batch, never the writer: its
-   * Clicks are counted as dropped and warned about before a waiting flush returns.
+   * Clicks are counted as dropped and warned about before a waiting flush returns. A save that ends
+   * after stop gave up on the writer is not counted: stop already counted it as dropped.
    */
   private void save(List<Click> batch) {
     boolean saved;
@@ -363,6 +438,9 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
     }
     lock.lock();
     try {
+      if (!isCurrentWriter()) {
+        return;
+      }
       if (saved) {
         recorded += batch.size();
       } else {

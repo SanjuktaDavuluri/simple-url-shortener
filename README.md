@@ -162,6 +162,7 @@ curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"u
 | `CLICK_QUEUE_CAPACITY` | `10000` | Most Clicks waiting to be saved; any more are dropped and counted (ADR 0012) |
 | `CLICK_BATCH_SIZE` | `500` | Most Clicks saved in one batch |
 | `CLICK_FLUSH_INTERVAL` | `1s` | Longest the background writer waits for a batch to fill before it saves what it has; also the shortest gap between two dropped-Click warnings |
+| `CLICK_SHUTDOWN_TIMEOUT` | `10s` | Longest a normal shutdown waits, after the web server stops, for queued Clicks to be saved; any still unsaved are dropped, counted and logged |
 
 ## Repository layout
 
