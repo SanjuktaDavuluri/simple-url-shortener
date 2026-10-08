@@ -1,124 +1,124 @@
 [
   {
     "key": "T1",
+    "title": "SQLite runs in WAL mode with a 5000 ms busy timeout and a pool of 4 connections",
     "kind": "Feature",
-    "title": "SQLite runs in WAL mode with a busy timeout and a pool of 4 (ADR 0021)",
-    "what": "Spec 0003 (docs/specs/0003-clickstream.md), Implementation Decisions › SQLite concurrency; ADR 0021. Switch the single data source from the rollback journal with one pooled connection to WAL journal mode, a busy timeout and a fixed Hikari pool of 4. Apply both settings on every connection through the sqlite-jdbc driver's connection properties in the Spring datasource configuration, not through a PRAGMA in a migration. Keep one data source and the Link Store boundary unchanged (ADR 0002). This ticket ships no Click code. It lands first so that the Click writer, when it arrives, never sits in the Redirect's way (story 22).",
+    "blocked_by": [],
+    "what": "Apply ADR 0021 before any Click is written. Every pooled SQLite connection gets WAL journal mode and a busy timeout of 5000 ms, set through the sqlite-jdbc driver's connection properties in the Spring datasource configuration (not a PRAGMA in a migration). This way a new database, an existing Release 1 database and the test databases all behave the same. The Hikari pool grows from 1 to a fixed 4. There is still one data source, and the Link Store boundary is unchanged (ADR 0002). docs/onboarding.md explains that the data directory now holds links.db, links.db-wal and links.db-shm together, that backups must stop the app or use SQLite's online backup, and that the directory must be on a local file system. Spec 0003: Implementation Decisions (SQLite concurrency), Impact Analysis (Data flows). ADR 0021.",
     "acceptance": [
-      "application.properties sets spring.datasource.hikari.maximum-pool-size=4 and applies journal_mode=WAL and a busy timeout to every connection through sqlite-jdbc connection properties. No Flyway migration sets a PRAGMA.",
-      "Integration test: every connection the app's DataSource hands out reports PRAGMA journal_mode = wal and the configured busy_timeout. This holds for a new database and for one created by a Release 1 build (rollback journal) after it is reopened with TestApps.",
-      "Integration test: while a separate connection holds an open write transaction on the database file, GET /{short_code} for an existing Link still returns 302 with the same Location and Cache-Control: no-store.",
-      "Integration test: while a separate connection holds the write lock for less than the busy timeout and then commits, POST /links waits and returns 201 instead of failing with SQLITE_BUSY.",
-      "The whole existing ./mvnw verify suite passes unchanged with the new settings.",
-      "docs/onboarding.md says the data directory is three files (links.db, links.db-wal, links.db-shm) that must be backed up and moved together, describes safe backups (stop the app, or .backup / VACUUM INTO) and says the directory must be on a local file system.",
-      "The new tests' rows are added to the traceability matrix in docs/plans/0001-integration-testing.md."
-    ],
-    "blocked_by": []
+      "application.properties sets spring.datasource.hikari.maximum-pool-size=4 and passes journal_mode=WAL and busy_timeout=5000 (ms) as sqlite-jdbc connection properties on the single data source. No migration contains a PRAGMA",
+      "An integration test checks that the context's connections report journal mode `wal` and a busy timeout of 5000 ms. A TestApps instance started on a Release 1 database (created before this change, with Links in it) also comes up in WAL mode and still Redirects its existing Links",
+      "The whole existing ./mvnw verify suite passes unchanged with the new settings, and IntegrationTest's Flyway reset still works with WAL on",
+      "docs/onboarding.md documents the three database files, how to back them up safely, the local-disk-only requirement, and how to revert (PRAGMA journal_mode=DELETE with no other connection open)",
+      "The plan 0001 traceability matrix gains a row for this ticket"
+    ]
   },
   {
     "key": "T2",
+    "title": "Click Classifier: reduce Referer and User-Agent to Referrer Host, Agent Category and Device Class",
     "kind": "Feature",
-    "title": "Click Classifier: Referrer Host, Agent Category and Device Class from request headers",
-    "what": "Spec 0003, Implementation Decisions › Click Classifier; Testing Decisions › Seam 2; stories 8–12; ADR 0013. Add a small, pure unit that turns the raw Referer and User-Agent header values into referrerHost (optional), agentCategory (BROWSER, BOT, OTHER) and deviceClass (DESKTOP, MOBILE). Referrer Host: the host of a valid http/https URI, in lower case, without port, user info, path or query; absent otherwise. Agent Category, checked in this order: bot if the user agent matches the single maintained list of case-insensitive crawler and link-preview substrings (bot, crawler, spider, slurp, facebookexternalhit, embedly, whatsapp, skypeuripreview, bingpreview); then browser if it starts with Mozilla/; otherwise other. Device Class: mobile if the user agent contains Mobi, Android, iPhone or iPad; otherwise desktop. The raw values are never stored or logged. No Spring wiring and no persistence; it can be built alongside T1.",
+    "blocked_by": [],
+    "what": "Build the pure Click Classifier in plain JUnit 5, test-first, the same way the rules unit tests work. Raw Referer and User-Agent header values go in. Out come an optional referrerHost, an AgentCategory (BROWSER, BOT, OTHER) and a DeviceClass (DESKTOP, MOBILE). Referrer Host: a valid http/https URI with a host gives the host in lower case, without port, user info, path or query; anything else (missing, malformed, other schemes such as android-app:) gives none. Agent Category is checked in order: (1) bot if the user agent contains any of the maintained crawler/link-preview patterns, matched case-insensitively and kept in one place (bot, crawler, spider, slurp, facebookexternalhit, embedly, whatsapp, skypeuripreview, bingpreview); (2) browser if it starts with `Mozilla/`; (3) otherwise other, including a missing user agent and tools such as curl, wget and python-requests. Device Class: mobile if the user agent contains Mobi, Android, iPhone or iPad; otherwise desktop, including bots and missing user agents. Raw values are never stored or logged (ADR 0013). This ticket doesn't wire anything into the Redirect. Spec 0003: stories 8–12, Implementation Decisions (Click Classifier), Testing Decisions seam 2.",
     "acceptance": [
-      "Plain JUnit 5 + AssertJ unit tests in the style of the rules tests (header values in, Click attributes out), with expected values taken from the spec.",
-      "Referrer Host: https://News.Example.com:8443/a?b=c gives news.example.com; user info is dropped; a missing Referer, a malformed URI, a URI without a host and non-http(s) schemes (android-app:, ftp:, javascript:) give no Referrer Host.",
-      "Bot: real user-agent strings for Googlebot, Bingbot, Slackbot, Twitterbot, facebookexternalhit, WhatsApp and Discordbot classify as BOT. A crawler whose user agent starts with Mozilla/ is still BOT (bot is checked before browser).",
-      "Browser: desktop Chrome, Firefox and Safari classify as BROWSER/DESKTOP; Safari on iPhone and Chrome on Android classify as BROWSER/MOBILE; an iPad user agent is MOBILE.",
-      "Other: curl, wget, python-requests, an empty user agent and a missing user agent classify as OTHER/DESKTOP. Bots without a mobile marker are DESKTOP.",
-      "The bot pattern list lives in one place and has its own unit tests.",
-      "The new tests' rows are added to the traceability matrix in docs/plans/0001-integration-testing.md."
-    ],
-    "blocked_by": []
+      "ClickClassifier unit tests cover Referrer Host: upper-case host lowered; port and user info dropped; path and query dropped; missing Referer; malformed Referer; non-http(s) schemes (e.g. android-app:, ftp:) give no host",
+      "Real-world user-agent strings for Googlebot, Bingbot, Slackbot, Twitterbot, facebookexternalhit, WhatsApp and Discordbot are classified as bot. The pattern list has its own unit tests",
+      "Chrome and Firefox on desktop are browser/desktop. Safari on iPhone and Chrome on Android are browser/mobile",
+      "curl, wget, python-requests and an empty or missing user agent are other/desktop",
+      "A crawler user agent that starts with `Mozilla/` (e.g. Googlebot's) is still bot (bot before browser)",
+      "The classifier is pure (no Spring, no I/O, no logging of its inputs). Test names use the glossary terms",
+      "The plan 0001 traceability matrix gains rows for this ticket"
+    ]
   },
   {
     "key": "T3",
+    "title": "Record one Click for every successful Redirect (tracer bullet: Redirect → Click Recorder → Click Store → clicks table)",
     "kind": "Feature",
-    "title": "Tracer bullet: every successful Redirect stores one Click through the Click Recorder and Click Store",
-    "what": "Spec 0003, Implementation Decisions (Click, Redirect handler, ClickRecorder, Click Store, Schema), stories 1, 5–7, 13, 23–26; Testing Decisions › Seam 3; ADRs 0002, 0005, 0012 and 0013. Build the thinnest end-to-end path. (1) Flyway V2__create_clicks.sql: a clicks table (id, short_code, clicked_at in ISO-8601 UTC in the links.created_at format, nullable referrer_host, agent_category checked to browser/bot/other, device_class checked to desktop/mobile), an index on (short_code, clicked_at), and no foreign key to links. (2) A Click record built on the request thread with time from an injected java.time.Clock (system UTC in production). (3) The ClickStore interface (save a batch; list the Clicks for a Short Code, oldest first) and a JdbcClickStore that is the only code touching clicks, with a batch insert in one transaction. (4) The ClickRecorder interface (record(Click) returns at once and never throws) and the queued Click Recorder: a bounded queue using offer, one background writer that takes up to batch-size Clicks and waits at most flush-interval, and flush(), with fixed defaults for now. (5) LinkController.followLink records a Click only for a successful GET; a HEAD (which Spring maps onto the GET handler) and a 404 record nothing. (6) IntegrationTest (and TestApps where relevant) flushes the Click Recorder before Flyway rebuilds the schema and exposes a helper that lists stored Clicks through the Click Store after flush(). Drop handling, stats, configuration and shutdown come in later tickets.",
-    "acceptance": [
-      "Integration test: after a GET /{short_code} with a Referer and a User-Agent and a call to flush(), the Click Store lists exactly one Click with that Short Code, the fixed test Clock's time, the expected Referrer Host, Agent Category and Device Class.",
-      "Integration test: a 404 for an unknown Short Code, a non-Short-Code path (e.g. /favicon.ico), a HEAD request for an existing Link, POST /links and GET / each store no Click.",
-      "Integration test: N Redirects of one Link store N Clicks, oldest first; Clicks for two Links stay separate.",
-      "Integration test: the full Referer and User-Agent sent appear in no field of the stored Click.",
-      "Integration test: V2 applies to an empty database and to a Release 1 database containing Links, and those Links still Redirect afterwards.",
-      "The existing Redirect tests (RedirectOverHttpIT and the others) pass unchanged: same 302, Location and Cache-Control: no-store.",
-      "No SQL on clicks exists outside JdbcClickStore. LinkStore, JdbcLinkStore, LinkService, PageController and rules are unchanged.",
-      "Each test starts with no Clicks: the recorder is flushed before the schema reset, so no Click from one test lands in the next test's database.",
-      "docs/plans/0001-integration-testing.md: principle 1 is amended to declare the Click Store as a seam until R2, P8 moves to Release 2, and the matrix gains rows for these tests."
-    ],
     "blocked_by": [
+      "T1",
       "T2"
+    ],
+    "what": "The end-to-end slice. Add the Click value (shortCode, clickedAt as a UTC Instant from an injected java.time.Clock, optional referrerHost, agentCategory, deviceClass). Add Flyway V2__create_clicks.sql: a clicks table with id integer primary key; short_code text not null; clicked_at text not null, ISO-8601 UTC in the same format as links.created_at; referrer_host text nullable; agent_category text not null, CHECKed to browser/bot/other; device_class text not null, CHECKed to desktop/mobile; an index on (short_code, clicked_at); no foreign key to links. Add the ClickStore interface (save a batch of Clicks in one transaction; list the Clicks for a Short Code, oldest first) and JdbcClickStore (JdbcClient, plain SQL, batch insert). It is the only code that touches clicks. Add the ClickRecorder interface (record(Click): returns immediately, never throws) and the queued Click Recorder: a bounded queue (offer, never put), one background writer thread that takes up to batch size Clicks, waits at most the flush interval for a batch to fill, and saves each batch with one Click Store call. It also offers flush() and stats() (recorded, dropped, pending). Settings: shortener.clicks.queue-capacity (CLICK_QUEUE_CAPACITY, 10000), shortener.clicks.batch-size (CLICK_BATCH_SIZE, 500), shortener.clicks.flush-interval (CLICK_FLUSH_INTERVAL, 1s), bound in ShortenerProperties. LinkController.followLink builds a Click through the Click Classifier after the Link Store returns a Long URL for a GET, hands it to the ClickRecorder, and returns the same 302 as before. 404s and HEAD requests record nothing. The test harness flushes the Click Recorder before the Flyway reset, so no Click leaks into the next test's database. It also exposes Click helpers that read through the Click Store, and supplies a fixed Clock. Plan 0001 principle 1 is amended to declare the Click Store as a seam until R2, and P8 moves to Release 2 with status in progress. Spec 0003: stories 1, 5–7, 13, 21, 23–26, Testing Decisions seams 1 and 3.",
+    "acceptance": [
+      "A successful GET Redirect stores exactly one Click with the Short Code, the fixed clock's time, the expected Referrer Host, Agent Category and Device Class. This is observed through the Click Store's list operation after ClickRecorder.flush(), never by sleeping",
+      "A 404, a path that can't be a Short Code, a HEAD request, Link creation (POST /links and the web page form) and GET / store no Click",
+      "N Redirects of one Link store N Clicks, oldest first. Clicks for two Links stay separate",
+      "The full Referer URL and the raw User-Agent sent with the request appear nowhere in the stored Click",
+      "The V2 migration applies to an empty database (the per-test reset) and, through TestApps, to a Release 1 database that already contains Links, which keep Redirecting",
+      "The existing Redirect tests (MockMvc and RedirectOverHttpIT) pass unchanged: same 302, Location and Cache-Control: no-store",
+      "The three click settings bind from the environment variables with the stated defaults",
+      "No SQL touching clicks exists outside JdbcClickStore. No test asserts on SQL or reads the table directly",
+      "Plan 0001: principle 1 amended for the Click Store seam, P8 moved to Release 2 and marked in progress, matrix rows added for each criterion"
     ]
   },
   {
     "key": "T4",
+    "title": "Click loss is bounded, counted and logged: full queue, failed batches, batch size and stats",
     "kind": "Feature",
-    "title": "Click Recorder loss handling: drop and count when full, failed batches, rate-limited warnings, stats, configuration",
-    "what": "Spec 0003, Implementation Decisions › Queued Click Recorder and Configuration; stories 2, 3, 14–17, 19–21; Testing Decisions › Seam 4 and 'Redirect never waits or fails'; ADRs 0012, 0013 and 0015. Harden the queued Click Recorder from T3. When the queue is full, drop the Click and increment the dropped count without blocking. A batch that fails to save counts all its Clicks as dropped, logs a warning with the count only, and the writer carries on with no retry. Drop warnings are rate-limited to at most one line per flush interval and carry the number dropped since the last line. record() catches every failure (including Click construction or classification) so nothing throws into the Redirect. Expose stats() with recorded, dropped and pending counts. Bind shortener.clicks.queue-capacity (CLICK_QUEUE_CAPACITY, 10000), batch-size (CLICK_BATCH_SIZE, 500) and flush-interval (CLICK_FLUSH_INTERVAL, 1s) through ShortenerProperties.",
-    "acceptance": [
-      "Unit test with a stand-in Click Store that blocks and a small capacity: Clicks beyond capacity are dropped, stats().dropped() counts them, and record() returns immediately without waiting for the store.",
-      "Unit test with a stand-in Click Store that fails once: that batch's Clicks are counted as dropped, the writer keeps running, and the next batch is saved and counted as recorded.",
-      "Unit test: no batch passed to the Click Store exceeds the batch size, and stats() reports recorded, dropped and pending correctly at each step.",
-      "Unit test: drop warnings are logged at most once per flush interval, carry only counts, and never contain a Short Code's Long URL, Referer or User-Agent.",
-      "Integration test: with a stand-in ClickRecorder that blocks, and another that throws, swapped in through a @TestConfiguration like ScriptedShortCodeGenerator, GET /{short_code} still returns 302 with the same headers.",
-      "Integration test (or ConfigurationIT): the three properties bind from their environment variables and default to 10000, 500 and 1s.",
-      "No request-level Click logging exists; only drop warnings and writer start and stop are logged.",
-      "The new tests' rows are added to the traceability matrix in docs/plans/0001-integration-testing.md."
-    ],
     "blocked_by": [
       "T3"
+    ],
+    "what": "Make the queued Click Recorder's overload and failure behaviour explicit and proven with unit tests that use a stand-in Click Store (the in-app fault seam R14 allows), with no timing guesses. When the queue is full, record() drops the Click, increments the dropped count and returns immediately. A batch that fails to save counts all its Clicks as dropped and logs a warning with the count only; the writer carries on with no retry and the next batch is saved. Batches never exceed the batch size. Drop warnings are rate-limited to at most one line per flush interval and carry the number dropped since the last line, never a referrer, user agent, Short Code or Long URL (ADR 0013, ADR 0015). The writer logs its start and stop. stats() reports recorded, dropped and pending correctly. record() never throws: any unexpected failure inside it is caught and counted as dropped. Spec 0003: stories 3, 14–17, 19, 20, Testing Decisions seam 4.",
+    "acceptance": [
+      "With a blocked stand-in store and a small capacity, Clicks beyond capacity are dropped and counted, and record() returns without waiting",
+      "With a stand-in store that fails one batch, every Click in that batch is counted as dropped, a single warning with the count is logged, and the next batch is saved and counted as recorded",
+      "With more queued Clicks than the batch size, no save call receives more than batch-size Clicks",
+      "stats() reports the expected recorded, dropped and pending numbers in each scenario above",
+      "Repeated drops within one flush interval produce at most one warning line, carrying the accumulated count. Captured log output contains no referrer, user agent, Short Code or Long URL",
+      "record() never throws, even if the queue or the clock misbehaves",
+      "The plan 0001 traceability matrix gains rows for each criterion"
     ]
   },
   {
     "key": "T6",
+    "title": "Prove the Redirect never waits for or fails because of Click recording, including under SQLite write contention",
     "kind": "Test",
-    "title": "Concurrency: Redirects and Link creation proceed while the Click writer holds the write lock",
-    "what": "Spec 0003, Testing Decisions › Concurrency; story 22; ADR 0021 Consequences › Tests. Prove that the Click path and the WAL settings work together. Use a stand-in Click Store that opens a write transaction on the real database and holds it while the Click writer is busy. While it is held, a Redirect lookup must complete, and a Link creation must succeed once the batch commits within the busy timeout. This is where a regression (pool back to 1 or WAL off) would show up.",
-    "acceptance": [
-      "Integration test: while the stand-in Click Store holds an open write transaction (a Click batch in progress), GET /{short_code} for an existing Link returns 302 without waiting for the batch to commit, checked with a bound well under the hold time rather than a sleep-based guess.",
-      "Integration test: while the Click writer holds the write lock briefly (less than the busy timeout), POST /links returns 201 after the batch commits.",
-      "The tests fail if the pool size is set back to 1 or WAL is turned off (checked once locally and noted in the PR).",
-      "The new tests' rows are added to the traceability matrix in docs/plans/0001-integration-testing.md."
-    ],
     "blocked_by": [
-      "T1",
       "T3"
+    ],
+    "what": "Integration evidence for stories 2, 3 and 22, and the concurrency test ADR 0021 requires. (a) A stand-in ClickRecorder that blocks, and one that throws, swapped in through a @TestConfiguration the same way as the scripted ShortCodeGenerator: the Redirect still returns its 302 with Location and Cache-Control: no-store, promptly. If the Redirect handler needs a guard so that handing over a Click can never throw into the Redirect, add it here, test-first. (b) With WAL on, a stand-in Click Store holds a Click batch write transaction open: a Redirect lookup completes while that write lock is held, and Link creation succeeds once the writer releases the lock within the 5000 ms busy timeout, instead of failing with SQLITE_BUSY. Use the existing test context mechanisms (shared context or TestApps) without breaking plan 0001's isolation principle. Spec 0003: stories 2, 3, 22, Testing Decisions (Redirect never waits or fails; Concurrency). ADR 0021 Consequences (Tests).",
+    "acceptance": [
+      "With a ClickRecorder stand-in that blocks indefinitely, GET /{short_code} returns 302 with the expected Location and Cache-Control: no-store within a short bound",
+      "With a ClickRecorder stand-in that throws a RuntimeException, GET /{short_code} still returns the same 302",
+      "While a stand-in Click Store holds an open write transaction, a Redirect of an existing Link completes with its 302 before the transaction is released",
+      "While the Click writer holds the write lock for less than the busy timeout, POST /links succeeds with 201 once the lock is released",
+      "Tests don't assert on SQL or table contents and don't sleep for fixed times to pass. Coordination uses latches or similar",
+      "The plan 0001 traceability matrix gains rows for each criterion"
     ]
   },
   {
     "key": "T5",
+    "title": "Queued Clicks are saved on a normal shutdown, within the shutdown timeout",
     "kind": "Feature",
-    "title": "Queued Clicks are flushed on a normal shutdown, within the shutdown timeout",
-    "what": "Spec 0003, Implementation Decisions › Queued Click Recorder (SmartLifecycle) and Configuration; story 18; Testing Decisions › Seam 3 (survive a normal shutdown) and Seam 4 (stop flushes within the timeout); ADR 0012. Make the queued Click Recorder a Spring SmartLifecycle bean whose phase makes it stop after the web server stops taking requests. On stop it flushes until the queue is empty or shortener.clicks.shutdown-timeout (CLICK_SHUTDOWN_TIMEOUT, default 10s) passes. Clicks still queued after that are counted as dropped and logged with counts only. Log writer start and stop.",
-    "acceptance": [
-      "Integration test with TestApps: start an instance with a long flush interval, Redirect a Link, close the context, start a new instance on the same database file, and find the Click through the Click Store.",
-      "Unit test with a stand-in Click Store: stop() saves everything queued when the store is responsive, and returns within the shutdown timeout when the store blocks, counting the Clicks left as dropped in stats() and logging a counts-only warning.",
-      "The Click Recorder's lifecycle phase stops it after the web server, so no Redirect accepted before shutdown is left unqueued.",
-      "CLICK_SHUTDOWN_TIMEOUT binds and defaults to 10s.",
-      "The new tests' rows are added to the traceability matrix in docs/plans/0001-integration-testing.md."
-    ],
     "blocked_by": [
       "T4"
+    ],
+    "what": "Run the queued Click Recorder as a Spring SmartLifecycle bean whose phase makes it stop after the web server stops taking requests. On stop it flushes until the queue is empty or the shutdown timeout passes. Clicks still queued then are counted as dropped and logged (count only), and the writer thread ends. Add shortener.clicks.shutdown-timeout (CLICK_SHUTDOWN_TIMEOUT, default 10s) to ShortenerProperties. Spec 0003: story 18, Implementation Decisions (Queued Click Recorder, stop), Impact Analysis (Shutdown), Testing Decisions seam 3 (shutdown survival) and seam 4 (stop).",
+    "acceptance": [
+      "Integration: with TestApps, an instance started with a long flush interval serves a Redirect, its context is closed normally, and a new instance on the same database file finds that Click through the Click Store",
+      "Unit: with a stand-in store, stop() saves everything queued when the store keeps up, and when the store is blocked beyond the shutdown timeout, stop() returns within about that timeout and counts the unsaved Clicks as dropped with one warning",
+      "The lifecycle phase makes the recorder stop after the web server's graceful shutdown, so Redirects served during shutdown are still recorded",
+      "CLICK_SHUTDOWN_TIMEOUT binds with a default of 10s",
+      "The plan 0001 traceability matrix gains rows for each criterion"
     ]
   },
   {
     "key": "T7",
+    "title": "Document the Clickstream: architecture flows, glossary, onboarding, README, roadmap R10 done, plan P8",
     "kind": "Docs",
-    "title": "Document the Clickstream: glossary, architecture flows, onboarding settings, roadmap and spec status",
-    "what": "Spec 0003, Further Notes and Impact Analysis › Documents to update with the tickets; story 27. Bring the reviewer's documents in line with the merged Clickstream work. Add the glossary candidates to CONTEXT.md, show the Redirect and Click flows in docs/architecture.md, document the new settings in docs/onboarding.md, and update the README map, the spec index and status, the R10 row of docs/roadmap.md, and plan 0001's P8 status.",
-    "acceptance": [
-      "CONTEXT.md defines Click Recorder, Referrer Host, Agent Category (browser, bot, other) and Device Class (desktop, mobile) in the glossary's format with _Avoid_ lines, and the Click entry mentions what a Click carries.",
-      "docs/architecture.md has a Mermaid diagram of the Redirect handing a Click to the Click Recorder (queue, one batch writer, Click Store, clicks table, drop and count), the WAL / pool-of-4 storage note with a link to ADR 0021, and the shutdown drain.",
-      "docs/onboarding.md lists CLICK_QUEUE_CAPACITY, CLICK_BATCH_SIZE, CLICK_FLUSH_INTERVAL and CLICK_SHUTDOWN_TIMEOUT with their defaults, notes that shutdown can take up to the shutdown timeout, and includes the code tour entries for Click, ClickClassifier, ClickRecorder, the queued recorder, ClickStore and JdbcClickStore.",
-      "docs/specs/README.md lists spec 0003, and its status is set to implemented. The R10 row in docs/roadmap.md is marked delivered with links to the spec and ADR 0021.",
-      "docs/plans/0001-integration-testing.md shows P8 as delivered in Release 2, and every spec 0003 acceptance criterion maps to a test in the matrix.",
-      "README.md links any new documents. No glossary term is used inconsistently across the updated documents."
-    ],
     "blocked_by": [
       "T4",
       "T5",
       "T6"
+    ],
+    "what": "Update the documents spec 0003's Impact Analysis lists, except anything under docs/specs/: the spec index and spec status are set by the Release close-out, not by this ticket. docs/architecture.md: the Redirect flow now hands a Click to the Click Recorder, plus a Mermaid diagram of the new Click flow (queue, batch writer, Click Store, clicks table, drop counting, shutdown flush) and the WAL/pool settings from ADR 0021. CONTEXT.md: add Click Recorder, Referrer Host, Agent Category (browser, bot, other) and Device Class (desktop, mobile) under Following links, each with Avoid terms, and refine Click to say it is recorded with these attributes. docs/onboarding.md: the four CLICK_* settings with their defaults, and the code tour entries for the new classes. README.md: link the new artifacts. docs/roadmap.md: mark R10 as `done` (the roadmap's lifecycle term, not 'delivered'), linking spec 0003, ADR 0021 and the merged PRs. docs/plans/0001-integration-testing.md: P8 marked done with its exit evidence, and the matrix complete for spec 0003.",
+    "acceptance": [
+      "No file under docs/specs/ is modified",
+      "docs/architecture.md shows the updated Redirect flow and a Mermaid Click flow that renders on GitHub, and mentions the three database files from ADR 0021",
+      "CONTEXT.md defines Click Recorder, Referrer Host, Agent Category and Device Class in the glossary's format, and the code and tests use those terms",
+      "docs/onboarding.md lists CLICK_QUEUE_CAPACITY (10000), CLICK_BATCH_SIZE (500), CLICK_FLUSH_INTERVAL (1s) and CLICK_SHUTDOWN_TIMEOUT (10s), and describes the new classes in the code tour",
+      "docs/roadmap.md's R10 row has status `done` with links to spec 0003, ADR 0021 and the ticket PRs",
+      "Plan 0001's P8 row is `done`, and every spec 0003 acceptance criterion maps to a test in the matrix",
+      "README.md links every new or changed artifact"
     ]
   }
 ]
