@@ -32,13 +32,15 @@ class JdbcLinkStore implements LinkStore {
   }
 
   @Override
-  public void save(String shortCode, String longUrl, Optional<Instant> expiry) {
+  public void save(
+      String shortCode, String longUrl, String manageTokenHash, Optional<Instant> expiry) {
     try {
       jdbc.sql(
-              "INSERT INTO links (short_code, long_url, expires_at)"
-                  + " VALUES (:shortCode, :longUrl, :expiresAt)")
+              "INSERT INTO links (short_code, long_url, manage_token_hash, expires_at)"
+                  + " VALUES (:shortCode, :longUrl, :manageTokenHash, :expiresAt)")
           .param("shortCode", shortCode)
           .param("longUrl", longUrl)
+          .param("manageTokenHash", manageTokenHash)
           .param("expiresAt", expiry.map(EXPIRES_AT::format).orElse(null))
           .update();
     } catch (DataAccessException e) {

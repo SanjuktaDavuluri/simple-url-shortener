@@ -94,7 +94,7 @@ The change is additive. Existing create-response fields, status codes and the Re
 - **Token hash:** SHA-256 of the token's UTF-8 bytes, stored as lower-case hex. A fast hash is enough here because the token is 256 bits of randomness, not a human-chosen password: there is nothing to brute-force from a dictionary. A slow password hash (bcrypt, Argon2) would add latency to every Stats read and gain nothing. Comparison uses `MessageDigest.isEqual` on the hashes, which is constant-time. When the Link is unknown or has no hash, the presented token is still hashed and compared against a fixed dummy hash, so that response time doesn't reveal whether the Short Code exists. (Candidate ADR: see Further Notes.)
 - **Link (the value):** gains `manageToken`. It holds the token in plain text only in memory, between creation and the response. It is never logged, and `toString` must not print it.
 - **Link Store:** `save(shortCode, longUrl, manageTokenHash)` replaces `save(shortCode, longUrl)`. A new `findForStats(shortCode)` returns the stored Link (Short Code, Long URL, `created_at`, Manage Token hash, which may be absent) if it exists. `findLongUrl` is unchanged, so the Redirect path is untouched.
-- **Schema (Flyway `V3__add_manage_token_hash.sql`):** `ALTER TABLE links ADD COLUMN manage_token_hash TEXT`, nullable. Existing rows get `NULL` and have no Stats access (ADR 0014). There is no index: lookups go by `short_code`, the primary key.
+- **Schema (Flyway `V4__add_manage_token_hash.sql`):** `ALTER TABLE links ADD COLUMN manage_token_hash TEXT`, nullable. Existing rows get `NULL` and have no Stats access (ADR 0014). There is no index: lookups go by `short_code`, the primary key.
 - **Click Store:** gains one read operation, `summarise(shortCode, Instant windowStart)`. It returns a Click Summary: counts by Agent Category; and, over non-bot Clicks only, counts by Device Class, the top 10 Referrer Hosts (by count descending, then by host ascending), the count with no Referrer Host, counts per UTC day from `windowStart`, and the latest `clicked_at`. `JdbcClickStore` computes it with `GROUP BY` queries over the `(short_code, clicked_at)` index, inside one read transaction, so all the numbers come from the same snapshot (WAL, ADR 0021). The Click Store stays the only code that reads `clicks` (spec 0003, story 24). `listClicks` stays as the audit read and the test seam. Stats are aggregated in SQL rather than by listing every Click because a busy Link's Clicks would otherwise all be loaded into memory on each request.
 - **Link Stats service (new, `stats` package):** `LinkStatsService.statsFor(shortCode, presentedToken)` returns `Optional<LinkStats>`. Empty means "`404`", with no reason given, for all the cases in story 20. It checks the token first and touches the Click Store only after a match. It builds the 30-day window from the injected `Clock`: today in UTC and the 29 days before it, oldest first, with days that have no Clicks filled with zero. The JSON API and the web page both use this service; neither implements Stats itself (ADR 0006).
 - **Headline count:** `clicks` = `browser` + `other`. Bots are excluded from the headline, the per-day series, the Device Class split, the Referrer Hosts and the last-Click time, and are reported only as `bot_clicks` and in `by_agent_category` (ADR 0013). `clicks` counts every non-bot Click ever stored, not just those in the 30-day window.
@@ -207,7 +207,7 @@ This is a brownfield change to the create path (JSON API and web page) and the `
 | `PageController.shorten`, `fragments/shortener.html`, `app.css` | **Changed:** the result panel shows the token, copy button, note and "See its stats" link | Browser checks (Playwright) and Lighthouse (≥ 90) must stay green |
 | `ClickStore`, `JdbcClickStore` | **Changed:** new `summarise` operation | Read-only. `saveAll` and `listClicks` are unchanged. One read transaction under WAL never blocks the Click writer (ADR 0021) |
 | `ManageTokenGenerator`, `ManageTokens` (hash and compare), `LinkStatsService`, `LinkStats`, Click Summary, `LinkStatsController`, `StatsPageController`, `index`/`fragments/stats.html` templates | **New** | Isolated; unit- and integration-tested |
-| Flyway migrations | **New** `V3__add_manage_token_hash.sql` | Additive, nullable column. Release 1 and R10 databases (the maintainer's `.local/`) migrate forward on start |
+| Flyway migrations | **New** `V4__add_manage_token_hash.sql` | Additive, nullable column. Release 1 and R10 databases (the maintainer's `.local/`) migrate forward on start |
 | `LinkController.followLink`, `ClickRecorder`, `QueuedClickRecorder`, `ClickClassifier`, `rules` | **Unchanged** | Their tests are the regression check |
 | Test harness (`IntegrationTest`, `TestApps`) | **Changed:** a scripted `ManageTokenGenerator` in the shared context; a helper that creates a Link and returns its token | Plan 0001 principles 2 and 3 keep holding |
 
@@ -252,7 +252,7 @@ flowchart LR
 
 ### Downstream roadmap items
 
-- **R3 / spec 0004 (expiring Links, draft):** an Expired Link keeps its Clicks and its Manage Token. Whether Stats show the Expiry is R3's to decide. Spec 0004 also plans a V3 migration (`expires_at`): whichever merges second renumbers its migration to V4.
+- **R3 / spec 0004 (expiring Links, draft):** an Expired Link keeps its Clicks and its Manage Token. Whether Stats show the Expiry is R3's to decide. Spec 0004 added the V3 migration (`expires_at`) first, so this spec's migration is V4.
 - **R4 (edit/delete):** the Manage Token is its intended authority, and reissuing a lost token (or issuing one for older Links) belongs there (ADR 0014).
 - **R12 (operability):** documents in the runbook that tokens and `Authorization` headers must never be logged, and that HTTPS is required for the token to stay secret.
 - **R19 (rate limiting):** must cover `GET /links/{code}/stats` and `POST /stats` (ADR 0014). Until then, guessing a 256-bit token is infeasible, but the endpoint is not throttled.
@@ -276,7 +276,7 @@ flowchart LR
 - **Seam 1: HTTP surface (integration, `*IT`).** Clicks are produced by real Redirects with chosen `Referer` and `User-Agent` headers, then `flush()` on the Click Recorder (ADR 0012: flush, don't sleep), then Stats are read over HTTP. The clock is fixed, so the 30-day window is deterministic.
   - **Create:** the `201` has `manage_token` (the scripted value), every existing field is unchanged, and there is `Cache-Control: no-store`. Two Links get different tokens. `422`/`503` responses carry no token.
   - **Stats with the right token:** totals, bot exclusion, Agent Category and Device Class splits, top Referrer Hosts (with ordering and the cut at 10), `no_referrer_host`, `last_click_at`, and 30 zero-filled days. Clicks at both edges of the window (29 days ago is in, 30 days ago is out of the series but in `clicks`). A Link with no Clicks. Two Links' Stats stay separate.
-  - **The same `404`:** unknown Short Code, a Link inserted without a hash (a pre-R2 Link via the V3 migration test), no header, a non-Bearer scheme, an empty token, the wrong token, another Link's token. Each must equal the first case byte for byte.
+  - **The same `404`:** unknown Short Code, a Link inserted without a hash (a pre-R2 Link via the V4 migration test), no header, a non-Bearer scheme, an empty token, the wrong token, another Link's token. Each must equal the first case byte for byte.
   - **Privacy:** the Stats body contains none of the raw `Referer` or `User-Agent` values sent. The token appears in no captured log output (`OutputCaptureExtension`) across create, Stats success and `404`.
   - **Redirect unchanged:** the Release 1 and spec 0003 Redirect tests pass unchanged.
 - **Seam 2: web page (integration, MockMvc/HTTP).**
@@ -290,7 +290,7 @@ flowchart LR
   - `ManageTokens`: hashing gives the known SHA-256 hex of a fixed token; matching and non-matching comparisons; the dummy-hash path.
   - `RandomManageTokenGenerator`: 43 base64url characters; no repeats over many draws.
   - `LinkStatsService` with stand-ins: zero-filling, window boundaries in UTC, the `404` cases.
-- **Migration:** V3 applies to an empty database (proven before every test) and to an R10 database containing Links and Clicks. Old Links keep Redirecting and their Stats are `404`.
+- **Migration:** V4 applies to an empty database (proven before every test) and to an R10 database containing Links and Clicks. Old Links keep Redirecting and their Stats are `404`.
 - **Browser checks (`e2e/`, Playwright):**
   - Create a Link on the page, copy the token, open "See its stats", enter the token, see the Stats.
   - The token is not in the page URL at any point.

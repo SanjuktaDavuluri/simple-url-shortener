@@ -48,6 +48,7 @@ class ExpiringLinksIT extends IntegrationTest {
   })
   void aLinkCreatedWithALifetimeReturnsItsExpiry(int expiresInDays, String expiresAt) {
     shortCodes.willReturn("Ab3xK9q");
+    manageTokens.willReturn(MANAGE_TOKEN);
 
     assertThat(postLink("https://example.com/event", expiresInDays))
         .hasStatus(201)
@@ -58,6 +59,7 @@ class ExpiringLinksIT extends IntegrationTest {
               "short_code": "Ab3xK9q",
               "short_url": "http://sho.rt/Ab3xK9q",
               "long_url": "https://example.com/event",
+              "manage_token": "first-scripted-manage-token-for-tests-00001",
               "expires_at": "%s"
             }
             """
@@ -67,6 +69,7 @@ class ExpiringLinksIT extends IntegrationTest {
   @Test
   void aLinkCreatedWithANullLifetimeReportsNoExpiry() {
     shortCodes.willReturn("Ab3xK9q");
+    manageTokens.willReturn(MANAGE_TOKEN);
 
     assertThat(postLink("https://example.com/forever", null))
         .hasStatus(201)
@@ -77,6 +80,7 @@ class ExpiringLinksIT extends IntegrationTest {
   @Test
   void aLinkCreatedWithoutALifetimeReportsNoExpiry() {
     shortCodes.willReturn("Ab3xK9q");
+    manageTokens.willReturn(MANAGE_TOKEN);
 
     assertThat(postLink("https://example.com/forever"))
         .hasStatus(201)
@@ -279,12 +283,15 @@ class ExpiringLinksIT extends IntegrationTest {
 
   private static final Instant EXPIRY = Instant.parse("2026-11-07T10:00:00Z");
 
+  private static final String MANAGE_TOKEN = "first-scripted-manage-token-for-tests-00001";
+
   private static final String NEVER_EXPIRES =
       """
       {
         "short_code": "Ab3xK9q",
         "short_url": "http://sho.rt/Ab3xK9q",
         "long_url": "https://example.com/forever",
+        "manage_token": "first-scripted-manage-token-for-tests-00001",
         "expires_at": null
       }
       """;
