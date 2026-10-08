@@ -1,6 +1,7 @@
 """`orchestrate`: the command-line entry point of the delivery orchestrator (spec 0002)."""
 
 import argparse
+import os
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -44,12 +45,21 @@ def _parser() -> argparse.ArgumentParser:
         "resume", help="continue a Run: pick up answers, approvals and labels from GitHub"
     )
     resume.add_argument("run")
+    resume.add_argument(
+        "--cost-cap-run", type=float, help="raise the Run's cost cap (USD) before continuing"
+    )
+    stop = commands.add_parser(
+        "stop", help="Safe-stop a Run: the current step finishes, later steps wait for resume"
+    )
+    stop.add_argument("run")
     approve = commands.add_parser("approve", help="approve an Approval Checkpoint")
     approve.add_argument("run")
-    approve.add_argument("checkpoint", help="for example: spec")
+    approve.add_argument("checkpoint", help="spec, adr-NNNN, tickets or dependency:<lane>")
     reject = commands.add_parser("reject", help="reject an Approval Checkpoint, with a reason")
     reject.add_argument("run")
-    reject.add_argument("checkpoint")
+    reject.add_argument(
+        "checkpoint", help="as for approve, or lane:<key> to roll a paused Lane back"
+    )
     reject.add_argument("--reason", required=True)
     check = commands.add_parser("verify", help="check that Event Logs are intact")
     target = check.add_mutually_exclusive_group(required=True)
@@ -59,14 +69,19 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _context(deps: Deps, workspace: Workspace, run: str) -> RunContext:
-    started = next(e for e in workspace.log(run).read() if e["type"] == "run_started")
+    log = workspace.log(run).read()
+    started = next(e for e in log if e["type"] == "run_started")
+    settings = dict(started["data"]["settings"])
+    for e in log:
+        if e["type"] == "settings_changed":
+            settings.update(e["data"])
     return RunContext(
         run=run,
         issue=started["data"]["issue"],
         workspace=workspace,
         github=deps.github,
         agent=deps.agent,
-        settings=Settings(**started["data"]["settings"]),
+        settings=Settings(**settings),
         policies=load_policies(deps.repo_root),
     )
 
@@ -111,8 +126,8 @@ def _waiting_checks(log: list[dict[str, Any]]) -> list[int]:
 def _run_state(log: list[dict[str, Any]]) -> str:
     if any(e["type"] == "run_finished" for e in log):
         return "finished"
-    pauses = [e["type"] for e in log if e["type"] in ("paused", "resumed")]
-    return "paused" if pauses and pauses[-1] == "paused" else "active"
+    last = [e["type"] for e in log if e["type"] in ("paused", "safe_stop", "resumed")]
+    return {"paused": "paused", "safe_stop": "stopped"}.get(last[-1] if last else "", "active")
 
 
 def _title(log: list[dict[str, Any]]) -> str:
@@ -200,21 +215,42 @@ def _submitted_artifact_changed(ctx: RunContext, waiting: dict[str, Any]) -> boo
     return content_hash("\n".join(f.read_text() for f in files)) != str(waiting["hash"])
 
 
-def _resume(deps: Deps, workspace: Workspace, run: str) -> int:
+def _resume(deps: Deps, workspace: Workspace, args: argparse.Namespace) -> int:
+    run = args.run
+    if args.cost_cap_run is not None:
+        workspace.log(run).append(
+            run=run,
+            actor="engineer",
+            type="settings_changed",
+            data={"cost_cap_run_usd": args.cost_cap_run},
+        )
     ctx = _context(deps, workspace, run)
+    state = _run_state(workspace.log(run).read())
+    if state == "finished":
+        _print_run(workspace, run)
+        return 0
+    if state == "stopped":
+        if "stop" in ctx.github.get_issue(ctx.issue).labels:
+            print(f"Remove the stop label from Issue #{ctx.issue} first", file=sys.stderr)
+            return REFUSED
+        workspace.stop_flag(run).unlink(missing_ok=True)
     waiting = graph.waiting_on(ctx)
-    if waiting is None and _run_state(workspace.log(run).read()) == "paused":
+    if state in ("stopped", "paused") and not (waiting and waiting["kind"] == "paused"):
+        ctx.event("resumed", None, actor="engineer")
+    if waiting is None:
         if graph.pending_step(ctx):
-            graph.continue_paused(ctx)
-    elif waiting and waiting["kind"] == "answer":
+            graph.continue_run(ctx)
+    elif waiting["kind"] == "paused":
+        graph.resume(ctx, {"action": "retry"})
+    elif waiting["kind"] == "answer":
         comments = ctx.github.comments(ctx.issue)
         after = [c.id for c in comments].index(waiting["comment"]) + 1
         reply = next((c for c in comments[after:] if marker(run) not in c.body), None)
         if reply:
             graph.resume(ctx, {"body": reply.body, "by": reply.author})
-    elif waiting and waiting["kind"] in ("checks", "merge"):
+    elif waiting["kind"] in ("checks", "merge"):
         graph.resume(ctx, {})  # the waiting node re-reads the PR from GitHub
-    elif waiting and waiting["kind"] == "approval":
+    elif waiting["kind"] == "approval":
         label = f"approved:{waiting['checkpoint']}"
         approval = next(
             (
@@ -235,6 +271,29 @@ def _resume(deps: Deps, workspace: Workspace, run: str) -> int:
     return 0
 
 
+def _stop(deps: Deps, workspace: Workspace, run: str) -> int:
+    lock = workspace.lock(run)
+    ctx = _context(deps, workspace, run)
+    if lock.exists() and _alive(lock.read_text()):
+        ctx.request_stop("orchestrate stop")
+        print(f"Stop requested: {run} stops after its current step")
+        return 0
+    if _run_state(ctx.log.read()) in ("active", "paused"):
+        ctx.request_stop("orchestrate stop")
+        ctx.event("safe_stop", None, {"reason": "orchestrate stop"}, actor="engineer")
+        ctx.mirror(f"⏹️ Stopped by the engineer. Continue with `orchestrate resume {run}`.")
+    _print_run(workspace, run)
+    return 0
+
+
+def _alive(pid: str) -> bool:
+    try:
+        os.kill(int(pid), 0)
+    except (ValueError, ProcessLookupError, PermissionError):
+        return False
+    return True
+
+
 def _changed_message(waiting: dict[str, Any]) -> str:
     return (
         f"{waiting['path']} changed after it was submitted for approval "
@@ -252,7 +311,28 @@ def _decide(deps: Deps, workspace: Workspace, args: argparse.Namespace) -> int:
         )
         return REFUSED
     ctx = _context(deps, workspace, args.run)
+    if _run_state(ctx.log.read()) == "stopped":
+        print(
+            f"{args.run} is stopped; resume it first with `orchestrate resume {args.run}`",
+            file=sys.stderr,
+        )
+        return REFUSED
     waiting = graph.waiting_on(ctx)
+    if args.checkpoint.startswith("lane:"):
+        key = args.checkpoint.removeprefix("lane:")
+        if (
+            args.command != "reject"
+            or not waiting
+            or waiting["kind"] != "paused"
+            or waiting.get("lane") != key
+        ):
+            print(f"{args.run} is not paused in Lane {key}", file=sys.stderr)
+            return REFUSED
+        graph.resume(
+            ctx, {"action": "rollback", "by": ctx.github.current_user(), "reason": args.reason}
+        )
+        _print_run(workspace, args.run)
+        return 0
     if not waiting or waiting["kind"] != "approval" or waiting["checkpoint"] != args.checkpoint:
         print(f"{args.run} is not waiting for approval of {args.checkpoint}", file=sys.stderr)
         return REFUSED
@@ -311,7 +391,9 @@ def main(argv: Sequence[str] | None = None, *, deps: Deps | None = None) -> int:
         print(f"Run {args.run} was not found", file=sys.stderr)
         return USAGE_ERROR
     if args.command == "resume":
-        return _resume(deps, workspace, args.run)
+        return _resume(deps, workspace, args)
+    if args.command == "stop":
+        return _stop(deps, workspace, args.run)
     return _decide(deps, workspace, args)
 
 

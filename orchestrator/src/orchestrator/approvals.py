@@ -82,18 +82,58 @@ def record_gate(ctx: RunContext, stage: str, gate: str, problems: list[str]) -> 
 
 
 def gate_failed(
-    ctx: RunContext, stage: str, what: str, state: RunState, problems: list[str]
+    ctx: RunContext,
+    stage: str,
+    what: str,
+    state: RunState,
+    problems: list[str],
+    lane: str | None = None,
 ) -> RunState:
     """Feed the failure back for another attempt; once retries run out, fail the Stage and pause."""
     attempts = state.get("attempts", 0) + 1
     listing = "\n".join(f"- {p}" for p in problems)
     if attempts > ctx.settings.max_retries:
-        ctx.event("stage_failed", stage, {"problems": problems})
-        ctx.event("paused", stage, {"reason": f"the {what} gate kept failing"})
-        ctx.mirror(f"⏸️ Paused: the {what} gate failed {attempts} times. Last problems:\n{listing}")
+        ctx.event("stage_failed", stage, {"problems": problems, "lane": lane})
+        ctx.event("paused", stage, {"reason": f"the {what} gate kept failing", "lane": lane})
+        options = f"Resume to retry with `orchestrate resume {ctx.run}`"
+        if lane:
+            options += (
+                f", or roll Lane {lane} back with "
+                f'`orchestrate reject {ctx.run} lane:{lane} --reason "…"`'
+            )
+        ctx.mirror(
+            f"⏸️ Paused: the {what} gate failed {attempts} times. Last problems:\n{listing}"
+            f"\n\n{options}."
+        )
         return {"attempts": attempts, "paused": True}
+    ctx.event("retry", stage, {"gate": what, "attempt": attempts, "lane": lane})
     ctx.mirror(f"{what.capitalize()} gate failed (attempt {attempts}); revising:\n{listing}")
     return {"attempts": attempts, "feedback": "\n".join(problems)}
+
+
+class Paused:
+    """Waits for the engineer after a Stage failed for good: retry it, or roll back its Lane."""
+
+    def __init__(
+        self, ctx: RunContext, stage: str, lane_of: Callable[[RunState], str] | None = None
+    ) -> None:
+        self.ctx, self.stage, self.lane_of = ctx, stage, lane_of
+
+    def __call__(self, state: RunState) -> RunState:
+        lane = self.lane_of(state) if self.lane_of else None
+        value: dict[str, Any] = interrupt({"kind": "paused", "stage": self.stage, "lane": lane})
+        if value.get("action") == "rollback":
+            return {
+                "action": "rollback",
+                "rollback_reason": value["reason"],
+                "rollback_by": value["by"],
+            }
+        self.ctx.event("resumed", self.stage, {"lane": lane}, actor="engineer")
+        return {"action": "retry", "paused": False, "attempts": 0}
+
+
+def after_paused(state: RunState) -> str:
+    return str(state.get("action", "retry"))
 
 
 def review_step(

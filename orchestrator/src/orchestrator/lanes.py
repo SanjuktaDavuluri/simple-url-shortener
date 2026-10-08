@@ -13,12 +13,13 @@ from langgraph.types import interrupt
 from orchestrator.agent import StepRequest
 from orchestrator.approvals import gate_failed, record_gate, review_step
 from orchestrator.commands import run, with_temporary_instance
-from orchestrator.context import RunContext
+from orchestrator.context import RunContext, marker
 from orchestrator.gitops import (
     changed_since_main,
     commit_all,
     lane_branch,
     push,
+    remove_lane,
     run_branch,
     worktree,
 )
@@ -84,6 +85,8 @@ class Begin:
                 "branch": lane_branch(state["published"][t["key"]], t["title"]),
                 "pr": None,
                 "sha": None,
+                "blocked_by": list(t.get("blocked_by", [])),
+                "status": "pending",
             }
             for t in state["tickets"]
         ]
@@ -157,10 +160,7 @@ class AwaitMerge:
                 STAGE,
                 {"checkpoint": checkpoint, "by": None, "channel": "github", "reason": reason},
             )
-            ctx.event("stage_failed", STAGE, {"problems": [reason]})
-            ctx.event("paused", STAGE, {"reason": reason})
-            ctx.mirror(f"⏸️ Paused: {reason}.")
-            return {"merge": "closed", "paused": True}
+            return {"merge": "closed", "rollback_reason": reason, "rollback_by": None}
         interrupt({"kind": "merge", "pr": pr_number})
         return {"merge": "recheck"}
 
@@ -177,7 +177,9 @@ class DocsChecksFailed:
         record_gate(self.ctx, STAGE, "required checks pass", problems)
         self.ctx.event("stage_failed", STAGE, {"problems": problems})
         self.ctx.event("paused", STAGE, {"reason": reason})
-        self.ctx.mirror(f"⏸️ Paused: {reason}.")
+        self.ctx.mirror(
+            f"⏸️ Paused: {reason}. Fix it on the PR, then `orchestrate resume {self.ctx.run}`."
+        )
         return {"paused": True}
 
 
@@ -187,6 +189,16 @@ class LaneBegin:
 
     def __call__(self, state: RunState) -> RunState:
         current = lane(state)
+        failed = {ln["key"] for ln in state["lanes"] if ln["status"] in ("rolled_back", "skipped")}
+        blockers = [b for b in current["blocked_by"] if b in failed]
+        if blockers:
+            data = {"lane": current["key"], "issue": current["issue"], "blocked_by": blockers}
+            self.ctx.event("lane_skipped", "implement", data)
+            self.ctx.mirror(
+                f"Lane **{current['key']}** (#{current['issue']}) skipped: "
+                f"it is blocked by {', '.join(blockers)}, which did not merge."
+            )
+            return {**_with_status(state, "skipped"), "lane_skipped": True}
         lane_tree(self.ctx, state)
         self.ctx.event(
             "stage_started", "implement", {"lane": current["key"], "issue": current["issue"]}
@@ -194,7 +206,7 @@ class LaneBegin:
         self.ctx.mirror(
             f"Lane **{current['key']}** started: #{current['issue']} {current['title']}."
         )
-        return {"attempts": 0, "feedback": None}
+        return {"attempts": 0, "feedback": None, "lane_skipped": False, "paused": False}
 
 
 class Implement:
@@ -224,7 +236,7 @@ class Implement:
         problems, _ = review_step(ctx, "implement", tree, dependencies_allowed=True)
         if problems:
             record_gate(ctx, "implement", "policy", problems)
-            return gate_failed(ctx, "implement", "policy", state, problems)
+            return gate_failed(ctx, "implement", "policy", state, problems, current["key"])
         prefix = PREFIX.get(current["kind"], "feat")
         commit_all(tree, f"{prefix}: {current['title']} (#{current['issue']})")
         manifests = [
@@ -311,7 +323,7 @@ class Verify:
         problems = [o.problem() for o in outcomes if not o.ok]
         record_gate(ctx, "implement", "verify passes", problems)
         if problems:
-            return gate_failed(ctx, "implement", "verify", state, problems)
+            return gate_failed(ctx, "implement", "verify", state, problems, current["key"])
         ctx.event("stage_passed", "implement", {"lane": current["key"]})
         return {"feedback": None}
 
@@ -342,7 +354,7 @@ class Document:
         problems, _ = review_step(ctx, "document", tree)
         if problems:
             record_gate(ctx, "document", "policy", problems)
-            return gate_failed(ctx, "document", "policy", state, problems)
+            return gate_failed(ctx, "document", "policy", state, problems, current["key"])
         commit_all(tree, f"docs: {current['title']} (#{current['issue']})")
         docs = list(result.output.get("docs_updated", []))
         ctx.event("stage_passed", "document", {"lane": current["key"], "docs_updated": docs})
@@ -390,7 +402,7 @@ class CiFailed:
             f"Required checks failed on PR #{lane(state)['pr']}:\n{state.get('ci_output', '')}"
         ]
         record_gate(self.ctx, "pr", "required checks pass", problems)
-        return gate_failed(self.ctx, "pr", "required checks", state, problems)
+        return gate_failed(self.ctx, "pr", "required checks", state, problems, lane(state)["key"])
 
 
 class LaneMerged:
@@ -401,12 +413,69 @@ class LaneMerged:
         current = lane(state)
         record_gate(self.ctx, "pr", "required checks pass", [])
         self.ctx.event("stage_passed", "pr", {"lane": current["key"], "pr": current["pr"]})
-        index = state["lane_index"] + 1
-        if index == len(state["lanes"]):
-            self.ctx.event(
-                "stage_passed", STAGE, {"artifacts": {"prs": [ln["pr"] for ln in state["lanes"]]}}
-            )
-        return {"lane_index": index}
+        return _with_status(state, "merged")
+
+
+def _with_status(state: RunState, status: str) -> RunState:
+    """Mark the current Lane and move on to the next one."""
+    lanes = list(state["lanes"])
+    lanes[state["lane_index"]] = {**lanes[state["lane_index"]], "status": status}
+    return {"lanes": lanes, "lane_index": state["lane_index"] + 1}
+
+
+class Rollback:
+    """Undo one Lane: close its PR, delete its branch and worktree, return its ticket to Ready."""
+
+    def __init__(self, ctx: RunContext) -> None:
+        self.ctx = ctx
+
+    def __call__(self, state: RunState) -> RunState:
+        ctx, current = self.ctx, lane(state)
+        reason = state.get("rollback_reason") or "rolled back"
+        pr = current["pr"]
+        if pr is not None and ctx.github.pr(pr).state == "open":
+            ctx.github.close_pr(pr)
+        remove_lane(ctx.workspace, f"{ctx.run}-{current['issue']}", current["branch"])
+        ctx.github.add_to_board(current["issue"], {"Status": "Todo"})
+        ctx.github.add_comment(
+            current["issue"],
+            f"{marker(ctx.run)}\nLane {current['key']} of Run {ctx.run} was rolled back: {reason}. "
+            "This ticket is back in Ready (Todo).",
+        )
+        ctx.event(
+            "lane_rolled_back",
+            "implement",
+            {
+                "lane": current["key"],
+                "issue": current["issue"],
+                "pr": pr,
+                "reason": reason,
+                "by": state.get("rollback_by"),
+            },
+            actor="engineer" if state.get("rollback_by") else "orchestrator",
+        )
+        ctx.mirror(
+            f"↩️ Lane **{current['key']}** rolled back: {reason}. Lanes that merged are kept."
+        )
+        return {
+            **_with_status(state, "rolled_back"),
+            "rollback_reason": None,
+            "action": None,
+            "paused": False,
+        }
+
+
+class LanesDone:
+    def __init__(self, ctx: RunContext) -> None:
+        self.ctx = ctx
+
+    def __call__(self, state: RunState) -> RunState:
+        by_status: dict[str, list[str]] = {"merged": [], "rolled_back": [], "skipped": []}
+        for ln in state["lanes"]:
+            by_status.setdefault(ln["status"], []).append(ln["key"])
+        prs = [ln["pr"] for ln in state["lanes"] if ln["status"] == "merged"]
+        self.ctx.event("stage_passed", STAGE, {"artifacts": {"prs": prs}, **by_status})
+        return {}
 
 
 def docs_pr(state: RunState) -> int:
@@ -433,10 +502,16 @@ def after_docs_checks(state: RunState) -> Literal["recheck", "request_merge", "s
     return "request_merge" if state["ci"] == "passed" else "stop"
 
 
-def after_merge(state: RunState) -> Literal["recheck", "next", "stop"]:
+def after_merge(state: RunState) -> Literal["recheck", "next", "closed"]:
     if state["merge"] == "recheck":
         return "recheck"
-    return "next" if state["merge"] == "merged" else "stop"
+    return "next" if state["merge"] == "merged" else "closed"
+
+
+def after_lane_begin(state: RunState) -> Literal["implement", "next_lane", "lanes_done"]:
+    if not state.get("lane_skipped"):
+        return "implement"
+    return "next_lane" if state["lane_index"] < len(state["lanes"]) else "lanes_done"
 
 
 def after_implement(state: RunState) -> Literal["verify", "dependency", "implement", "stop"]:
@@ -473,5 +548,9 @@ def after_ci_failed(state: RunState) -> Literal["implement", "stop"]:
     return "stop" if state.get("paused") else "implement"
 
 
-def after_lane(state: RunState) -> Literal["next_lane", "readiness"]:
-    return "next_lane" if state["lane_index"] < len(state["lanes"]) else "readiness"
+def after_lane(state: RunState) -> Literal["next_lane", "lanes_done"]:
+    return "next_lane" if state["lane_index"] < len(state["lanes"]) else "lanes_done"
+
+
+def lane_key(state: RunState) -> str:
+    return str(lane(state)["key"])

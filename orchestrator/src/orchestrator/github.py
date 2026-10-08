@@ -73,6 +73,7 @@ class GitHub(Protocol):
     def create_pr(self, head: str, base: str, title: str, body: str) -> int: ...
     def pr(self, number: int) -> PullRequest: ...
     def pr_checks(self, number: int, sha: str) -> list[Check]: ...
+    def close_pr(self, number: int) -> None: ...
 
 
 class GhCliGitHub:
@@ -259,3 +260,6 @@ class GhCliGitHub:
             Check(c["name"], buckets.get(c["bucket"], "pending"), c.get("link", ""))
             for c in json.loads(result.stdout)
         ]
+
+    def close_pr(self, number: int) -> None:
+        self._gh("pr", "close", str(number))

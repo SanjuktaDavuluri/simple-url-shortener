@@ -99,6 +99,18 @@ def push(tree: Path, branch: str) -> str:
     return _git(tree, "rev-parse", "HEAD").strip()
 
 
+def remove_lane(workspace: Workspace, name: str, branch: str) -> None:
+    """Delete a Lane's worktree, local branch and pushed branch (each only if it exists)."""
+    root = workspace.repo_root
+    path = workspace.worktrees / name
+    if path.exists():
+        _git(root, "worktree", "remove", "--force", str(path))
+    subprocess.run(["git", "branch", "-D", branch], cwd=root, capture_output=True)
+    subprocess.run(
+        ["git", "push", "--quiet", "origin", "--delete", branch], cwd=root, capture_output=True
+    )
+
+
 def commit_and_push(tree: Path, run: str, paths: list[str], message: str) -> None:
     _git(tree, "add", "--", *paths)
     if _git(tree, "status", "--porcelain", "--", *paths).strip():

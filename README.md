@@ -84,7 +84,7 @@ flowchart LR
 
 ## The delivery orchestrator
 
-*Being built in Release 2 (roadmap R18, tickets #26–#35). Available now: a full Run for tickets one at a time, under policy guardrails: intake, requirements, design, decompose, Lanes (implement → document → PR → human merge), release readiness and close-out, via `start`, `status`, `resume`, `approve`, `reject` and `verify`. See [`orchestrator/README.md`](orchestrator/README.md).*
+*Being built in Release 2 (roadmap R18, tickets #26–#35). Available now: a full Run for tickets one at a time, under policy guardrails, with retries, pause and resume, Rollback, Safe-stop and cost caps: intake, requirements, design, decompose, Lanes (implement → document → PR → human merge), release readiness and close-out, via `start`, `status`, `resume`, `approve`, `reject` and `verify`. See [`orchestrator/README.md`](orchestrator/README.md).*
 
 An engineer starts a run from a GitHub Issue: `orchestrate start <issue>`. The orchestrator then drives the request through fixed stages: **intake → requirements → design → decompose → per-ticket lanes (implement → document → PR) → release readiness → close-out**. Each stage has an exit gate. A human approves the spec, any ADRs, the tickets and every merge. Each run leaves a tamper-evident event log and a report in the repository, and delivery metrics are derived from them.
 
