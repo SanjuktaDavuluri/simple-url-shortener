@@ -1,0 +1,46 @@
+   1  run_started                           
+   4  stage_passed       intake             
+   8  approval_requested requirements       checkpoint=spec
+   9  approved           requirements       checkpoint=spec
+  10  stage_passed       requirements       
+  14  stage_passed       design             
+  18  approval_requested decompose          checkpoint=tickets
+  19  approved           decompose          checkpoint=tickets
+  24  stage_passed       decompose          
+  25  pr_opened          lanes              lane=docs, pr=103
+  28  approval_requested lanes              checkpoint=merge:103, pr=103
+  29  approved           lanes              checkpoint=merge:103
+  30  lane_started       implement          lane=T1
+  32  lane_started       implement          lane=T2
+  37  retry              implement          lane=T1
+  40  retry              implement          lane=T2
+  43  retry              implement          lane=T2
+  46  stage_passed       implement          lane=T1
+  50  stage_failed       implement          lane=T2
+  51  paused             implement          reason=the verify gate kept failing, lane=T2
+  52  stage_passed       document           lane=T1
+  53  pr_opened          pr                 lane=T1, pr=104
+  55  approval_requested lanes              checkpoint=merge:104, pr=104
+  56  lane_rolled_back   implement          lane=T2, pr=None, reason=Out of scope for this Run; rethink the page.
+  57  lane_finished      implement          lane=T2, outcome=rolled_back
+  58  replanned                             from=decompose
+  59  invalidated        decompose          reason=tickets changed
+  60  invalidated        lanes              reason=tickets changed
+  62  approval_requested decompose          checkpoint=tickets
+  63  approved           decompose          checkpoint=tickets
+  65  stage_passed       decompose          
+  69  approved           lanes              checkpoint=merge:104
+  71  stage_passed       pr                 lane=T1, pr=104
+  72  lane_finished      pr                 lane=T1, outcome=merged
+  73  lane_started       implement          lane=T3
+  77  stage_passed       implement          lane=T3
+  80  stage_passed       document           lane=T3
+  81  pr_opened          pr                 lane=T3, pr=105
+  83  approval_requested lanes              checkpoint=merge:105, pr=105
+  84  approved           lanes              checkpoint=merge:105
+  86  stage_passed       pr                 lane=T3, pr=105
+  87  lane_finished      pr                 lane=T3, outcome=merged
+  88  stage_passed       lanes              rolled_back=['T2']
+  91  stage_passed       release_readiness  
+  93  stage_passed       close_out          
+  94  run_finished                          outcome=partially delivered, rolled_back=['T2']
