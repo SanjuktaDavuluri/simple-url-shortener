@@ -254,8 +254,9 @@ def test_approving_from_the_cli_passes_the_stage_and_binds_the_approval_to_the_s
         "channel": "cli",
         "hash": submitted["data"]["hash"],
     }
-    passed = events(repo)[-1]
-    assert (passed["stage"], passed["type"]) == ("requirements", "stage_passed")
+    passed = next(
+        e for e in events(repo) if (e["stage"], e["type"]) == ("requirements", "stage_passed")
+    )
     assert passed["data"]["artifacts"]["spec"] == {
         "path": SPEC_PATH,
         "hash": submitted["data"]["hash"],

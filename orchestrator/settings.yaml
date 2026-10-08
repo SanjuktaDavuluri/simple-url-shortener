@@ -4,3 +4,5 @@ max_parallel_lanes: 2   # ticket Lanes running at once
 cost_cap_step_usd: 5    # per agent step; reaching it triggers a Safe-stop
 cost_cap_run_usd: 50    # per Run
 model: claude-opus-5-5
+board_owner: SanjuktaDavuluri   # delivery board (GitHub Project) where published tickets go
+board_number: 1

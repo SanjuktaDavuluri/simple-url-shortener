@@ -42,6 +42,16 @@ def exists_on_main(workspace: Workspace, path: str) -> bool:
     return result.returncode == 0
 
 
+def files_on_main(workspace: Workspace, directory: str) -> list[str]:
+    listing = subprocess.run(
+        ["git", "ls-tree", "--name-only", "origin/main", f"{directory}/"],
+        cwd=workspace.repo_root,
+        capture_output=True,
+        text=True,
+    )
+    return listing.stdout.split()
+
+
 def commit_and_push(worktree: Path, run: str, paths: list[str], message: str) -> None:
     _git(worktree, "add", "--", *paths)
     if _git(worktree, "status", "--porcelain", "--", *paths).strip():

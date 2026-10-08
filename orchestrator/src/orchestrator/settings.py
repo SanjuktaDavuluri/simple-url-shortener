@@ -14,6 +14,8 @@ class Settings:
     cost_cap_step_usd: float = 5.0
     cost_cap_run_usd: float = 50.0
     model: str = "claude-opus-5-5"
+    board_owner: str = ""
+    board_number: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)

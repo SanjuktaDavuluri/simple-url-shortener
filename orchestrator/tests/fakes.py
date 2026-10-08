@@ -25,7 +25,18 @@ class InMemoryGitHub:
     issues: dict[int, Issue] = field(default_factory=dict)
     _comments: dict[int, list[Comment]] = field(default_factory=dict)
     _label_events: dict[int, list[LabelEvent]] = field(default_factory=dict)
+    milestones: list[str] = field(
+        default_factory=lambda: [
+            "Release 1: Greenfield v1 (v1.0.0)",
+            "Release 2: Orchestrated delivery",
+        ]
+    )
+    created: list[int] = field(default_factory=list)
+    issue_meta: dict[int, dict[str, object]] = field(default_factory=dict)
+    blocked_by: dict[int, list[int]] = field(default_factory=dict)
+    board: dict[int, dict[str, str]] = field(default_factory=dict)
     _ids: Iterator[int] = field(default_factory=lambda: count(1000))
+    _numbers: Iterator[int] = field(default_factory=lambda: count(100))
 
     def add_issue(
         self, number: int, title: str, body: str = "", labels: tuple[str, ...] = ()
@@ -64,6 +75,24 @@ class InMemoryGitHub:
 
     def file_url(self, ref: str, path: str) -> str:
         return f"https://github.test/blob/{ref}/{path}"
+
+    def milestone_for_release(self, release: str) -> str | None:
+        return next((m for m in self.milestones if m.startswith(f"Release {release}:")), None)
+
+    def create_issue(
+        self, title: str, body: str, labels: tuple[str, ...], milestone: str | None
+    ) -> int:
+        number = next(self._numbers)
+        self.add_issue(number, title, body, labels)
+        self.issue_meta[number] = {"milestone": milestone}
+        self.created.append(number)
+        return number
+
+    def add_blocked_by(self, issue: int, blocker: int) -> None:
+        self.blocked_by.setdefault(issue, []).append(blocker)
+
+    def add_to_board(self, issue: int, fields: dict[str, str]) -> None:
+        self.board[issue] = dict(fields)
 
 
 Scripted = StepResult | Callable[[StepRequest], StepResult]

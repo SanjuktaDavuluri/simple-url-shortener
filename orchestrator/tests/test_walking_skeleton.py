@@ -217,6 +217,8 @@ def test_run_records_the_settings_it_used(
         "cost_cap_step_usd": 5.0,
         "cost_cap_run_usd": 50.0,
         "model": "claude-opus-5-5",
+        "board_owner": "",
+        "board_number": 0,
     }
 
 
