@@ -9,7 +9,7 @@ from typing import Any, Literal
 from langgraph.types import interrupt
 
 from orchestrator.agent import StepRequest
-from orchestrator.approvals import gate_failed, record_gate
+from orchestrator.approvals import gate_failed, record_gate, review_step
 from orchestrator.context import RunContext
 from orchestrator.gitops import commit_and_push, ensure_run_worktree, exists_on_main
 from orchestrator.hashing import content_hash
@@ -117,6 +117,7 @@ class Gate:
             exists_on_main=exists_on_main(ctx.workspace, path),
             roadmap_item=state.get("roadmap_item"),
         )
+        problems += review_step(ctx, STAGE, worktree)[0]
         record_gate(ctx, STAGE, "spec is complete", problems)
         if problems:
             return gate_failed(ctx, STAGE, "spec", state, problems)

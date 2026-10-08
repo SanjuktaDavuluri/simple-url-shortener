@@ -204,7 +204,7 @@ def test_verify_all_checks_local_and_committed_runs(
 def test_run_records_the_settings_it_used(
     orchestrate: Orchestrate, github: InMemoryGitHub, repo: Path
 ) -> None:
-    (repo / "orchestrator").mkdir()
+    (repo / "orchestrator").mkdir(exist_ok=True)
     (repo / "orchestrator" / "settings.yaml").write_text("max_parallel_lanes: 3\n")
     github.add_issue(42, "Expiring links")
 
@@ -235,10 +235,17 @@ def test_run_state_stays_out_of_the_working_tree(
     orchestrate("start", "42")
 
     written = {p.relative_to(repo).parts[0] for p in repo.rglob("*") if p.is_file()}
-    assert written - {".git", "docs"} == {".orchestrator"}
-    assert not subprocess.run(
-        ["git", "status", "--porcelain", "--ignored=no"], cwd=repo, capture_output=True, text=True
-    ).stdout.replace("?? .orchestrator/\n", "")
+    assert written - {".git", "docs", "orchestrator"} == {".orchestrator"}
+    assert (
+        not subprocess.run(
+            ["git", "status", "--porcelain", "--ignored=no"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.replace("?? .orchestrator/\n", "")
+        .replace("?? orchestrator/\n", "")
+    )
 
 
 def test_unknown_run_is_reported(orchestrate: Orchestrate) -> None:

@@ -13,7 +13,7 @@ from langgraph.types import Command
 from orchestrator import decompose, design, lanes, requirements
 from orchestrator.approvals import AwaitApproval, RequestApproval
 from orchestrator.closeout import CloseOut, ReleaseReadiness
-from orchestrator.context import RunContext
+from orchestrator.context import RunContext, RunPaused
 from orchestrator.stages import Intake
 from orchestrator.state import RunState
 
@@ -135,6 +135,13 @@ def build(ctx: RunContext, checkpointer: SqliteSaver) -> Graph:
     g.add_node("docs_await_merge", lanes.AwaitMerge(ctx, lanes.docs_pr))
     g.add_node("lane_begin", lanes.LaneBegin(ctx))
     g.add_node("implement", lanes.Implement(ctx))
+    g.add_node(
+        "dependency_request_approval",
+        RequestApproval(ctx, "implement", lanes.describe_dependency, lanes.dependency_location),
+    )
+    g.add_node("dependency_await_approval", AwaitApproval(ctx, "implement"))
+    g.add_node("dependency_decided", lanes.DependencyDecided(ctx))
+    g.add_node("verify", lanes.Verify(ctx))
     g.add_node("document", lanes.Document(ctx))
     g.add_node("open_pr", lanes.OpenPr(ctx))
     g.add_node("lane_checks", lanes.AwaitChecks(ctx, lanes.lane_pr, lanes.lane_sha))
@@ -163,9 +170,30 @@ def build(ctx: RunContext, checkpointer: SqliteSaver) -> Graph:
     g.add_conditional_edges(
         "implement",
         lanes.after_implement,
+        {
+            "verify": "verify",
+            "dependency": "dependency_request_approval",
+            "implement": "implement",
+            "stop": END,
+        },
+    )
+    g.add_edge("dependency_request_approval", "dependency_await_approval")
+    g.add_edge("dependency_await_approval", "dependency_decided")
+    g.add_conditional_edges(
+        "dependency_decided",
+        lanes.after_dependency,
+        {"verify": "verify", "implement": "implement"},
+    )
+    g.add_conditional_edges(
+        "verify",
+        lanes.after_verify,
         {"document": "document", "implement": "implement", "stop": END},
     )
-    g.add_edge("document", "open_pr")
+    g.add_conditional_edges(
+        "document",
+        lanes.after_document,
+        {"open_pr": "open_pr", "document": "document", "stop": END},
+    )
     g.add_edge("open_pr", "lane_checks")
     g.add_conditional_edges(
         "lane_checks",
@@ -210,9 +238,32 @@ def _config(ctx: RunContext) -> Any:
     return {"configurable": {"thread_id": ctx.run}, "recursion_limit": 10_000}
 
 
+def _invoke(ctx: RunContext, value: Any) -> None:
+    try:
+        with open_graph(ctx) as graph:
+            graph.invoke(value, _config(ctx))
+    except RunPaused as paused:
+        ctx.event("paused", paused.stage, {"reason": paused.reason})
+        ctx.mirror(
+            f"⏸️ Paused in **{paused.stage}**: {paused.reason}. "
+            f"Resume with `orchestrate resume {ctx.run}`."
+        )
+
+
 def start(ctx: RunContext) -> None:
+    _invoke(ctx, {"run": ctx.run, "issue": ctx.issue})
+
+
+def pending_step(ctx: RunContext) -> bool:
+    """True when the Run stopped mid-step (a Safe-stop) and can continue from there."""
     with open_graph(ctx) as graph:
-        graph.invoke({"run": ctx.run, "issue": ctx.issue}, _config(ctx))
+        snapshot = graph.get_state(_config(ctx))
+    return bool(snapshot.next) and not snapshot.interrupts
+
+
+def continue_paused(ctx: RunContext) -> None:
+    ctx.event("resumed", None, actor="engineer")
+    _invoke(ctx, None)
 
 
 def waiting_on(ctx: RunContext) -> dict[str, Any] | None:
@@ -223,5 +274,4 @@ def waiting_on(ctx: RunContext) -> dict[str, Any] | None:
 
 
 def resume(ctx: RunContext, value: dict[str, Any]) -> None:
-    with open_graph(ctx) as graph:
-        graph.invoke(Command(resume=value), _config(ctx))
+    _invoke(ctx, Command(resume=value))

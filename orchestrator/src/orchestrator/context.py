@@ -1,13 +1,22 @@
 """What every Stage node needs: where the Run lives, its adapters, and how it reports progress."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from orchestrator.agent import Agent, StepRequest, StepResult
 from orchestrator.events import EventLog
 from orchestrator.github import Comment, GitHub
+from orchestrator.policies import Decision, Policies, ToolCall, decide
 from orchestrator.settings import Settings
 from orchestrator.workspace import Workspace
+
+
+class RunPaused(Exception):
+    """Raised inside a Stage to Safe-stop the Run; `resume` re-runs that Stage's current step."""
+
+    def __init__(self, stage: str, reason: str) -> None:
+        super().__init__(reason)
+        self.stage, self.reason = stage, reason
 
 
 def marker(run: str) -> str:
@@ -23,6 +32,7 @@ class RunContext:
     github: GitHub
     agent: Agent | None
     settings: Settings
+    policies: Policies
 
     @property
     def log(self) -> EventLog:
@@ -46,7 +56,20 @@ class RunContext:
             raise RuntimeError(
                 "No agent is configured; the Claude Agent SDK adapter arrives with #35"
             )
-        result = self.agent.run(request)
+        blocked: list[Decision] = []
+
+        def guard(call: ToolCall) -> Decision:
+            decision = decide(self.policies, request.stage, request.workspace, call)
+            if not decision.allowed:
+                blocked.append(decision)
+                self.event(
+                    "policy_blocked",
+                    request.stage,
+                    {"tool": call.tool, "rule": decision.rule, "reason": decision.reason},
+                )
+            return decision
+
+        result = self.agent.run(replace(request, guard=guard))
         self.event(
             "agent_call",
             stage=request.stage,
@@ -59,4 +82,8 @@ class RunContext:
                 "duration_ms": result.duration_ms,
             },
         )
+        if len(blocked) > self.settings.max_retries:
+            raise RunPaused(
+                request.stage, f"{len(blocked)} actions were blocked by policy in one step"
+            )
         return result

@@ -14,6 +14,7 @@ from orchestrator.context import RunContext, marker
 from orchestrator.events import verify
 from orchestrator.github import GhCliGitHub, GitHub, IssueNotFound
 from orchestrator.hashing import content_hash
+from orchestrator.policies import PolicyError, load_policies
 from orchestrator.settings import Settings, load_settings
 from orchestrator.stages import STAGES
 from orchestrator.workspace import Workspace
@@ -66,6 +67,7 @@ def _context(deps: Deps, workspace: Workspace, run: str) -> RunContext:
         github=deps.github,
         agent=deps.agent,
         settings=Settings(**started["data"]["settings"]),
+        policies=load_policies(deps.repo_root),
     )
 
 
@@ -156,13 +158,18 @@ def _start(deps: Deps, workspace: Workspace, issue_number: int) -> int:
     except IssueNotFound:
         print(f"Issue #{issue_number} was not found", file=sys.stderr)
         return USAGE_ERROR
+    try:
+        policies = load_policies(deps.repo_root)
+    except PolicyError as e:
+        print(f"Refusing to start: {e}", file=sys.stderr)
+        return USAGE_ERROR
     settings = load_settings(deps.repo_root)
     run = workspace.next_run_id()
     workspace.log(run).append(
         run=run,
         actor="engineer",
         type="run_started",
-        data={"issue": issue.number, "settings": settings.as_dict()},
+        data={"issue": issue.number, "settings": settings.as_dict(), "policies": policies.digest},
     )
     graph.start(_context(deps, workspace, run))
     _print_run(workspace, run)
@@ -186,14 +193,20 @@ def _status(workspace: Workspace, run: str | None) -> int:
 
 
 def _submitted_artifact_changed(ctx: RunContext, waiting: dict[str, Any]) -> bool:
-    file = ctx.workspace.worktrees / ctx.run / waiting["path"]
-    return not file.is_file() or content_hash(file.read_text()) != waiting["hash"]
+    tree = ctx.workspace.worktrees / waiting.get("tree", ctx.run)
+    files = [tree / p for p in waiting.get("paths", [waiting["path"]])]
+    if not all(f.is_file() for f in files):
+        return True
+    return content_hash("\n".join(f.read_text() for f in files)) != str(waiting["hash"])
 
 
 def _resume(deps: Deps, workspace: Workspace, run: str) -> int:
     ctx = _context(deps, workspace, run)
     waiting = graph.waiting_on(ctx)
-    if waiting and waiting["kind"] == "answer":
+    if waiting is None and _run_state(workspace.log(run).read()) == "paused":
+        if graph.pending_step(ctx):
+            graph.continue_paused(ctx)
+    elif waiting and waiting["kind"] == "answer":
         comments = ctx.github.comments(ctx.issue)
         after = [c.id for c in comments].index(waiting["comment"]) + 1
         reply = next((c for c in comments[after:] if marker(run) not in c.body), None)

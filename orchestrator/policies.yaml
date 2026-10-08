@@ -1,0 +1,65 @@
+# Delivery orchestrator policy guardrails (ADR 0010). Protected by CODEOWNERS and from agent edits:
+# changing a guardrail is a reviewed pull request by a human.
+#
+# Enforced twice: before every agent action (the PreToolUse check) and after every step (the diff
+# checks in each Exit Gate). Cost caps live in settings.yaml; traceability is checked at release
+# readiness.
+version: 1
+
+git:
+  protected_branches: [main]
+  # The only branches a Run may delete: its own Lane and documents branches.
+  run_branch_pattern: '^(feat|fix|test|docs)/\d+-[a-z0-9-]+$|^docs/run-R-\d{4}(-close-out)?$'
+
+# Paths agents may never write.
+protected_paths:
+  - .github/
+  - .githooks/
+  - CLAUDE.md
+  - orchestrator/policies.yaml
+  - orchestrator/settings.yaml
+  - delivery/
+
+# Paths agents may write only in the listed Stages.
+stage_paths:
+  docs/adr/: [design]
+
+# Changing any of these is high impact: it adds a `dependency:<lane>` Approval Checkpoint.
+dependency_manifests:
+  - pom.xml
+  - .mvn/wrapper/maven-wrapper.properties
+  - e2e/package.json
+  - e2e/package-lock.json
+  - orchestrator/pyproject.toml
+  - orchestrator/uv.lock
+
+commands:
+  blocked_programs: [sudo, su, doas]
+  # `gh` subcommands that change merges, repository settings or secrets.
+  blocked_gh: ["pr merge", "repo edit", "repo delete", "repo rename", "repo archive", "secret", "ruleset", "auth"]
+  # `gh api` paths that may only be read, never changed (regular expressions).
+  read_only_api: ['/protection', '/rulesets', '/collaborators', '/hooks', '/actions/secrets', '/environments', '^/?repos/[^/]+/[^/]+/?$']
+  downloaders: [curl, wget]
+  interpreters: [sh, bash, zsh, dash, python, python3, node, perl, ruby]
+
+network:
+  allowed_hosts:
+    - localhost
+    - 127.0.0.1
+    - repo.maven.apache.org
+    - repo1.maven.org
+    - registry.npmjs.org
+    - github.com
+    - api.github.com
+    - codeload.github.com
+    - objects.githubusercontent.com
+    - raw.githubusercontent.com
+
+# Credential patterns. A match blocks the write or fails the gate; the matched text is never logged.
+secrets:
+  github_token: 'gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,}'
+  anthropic_key: 'sk-ant-[A-Za-z0-9_-]{20,}'
+  aws_access_key: 'AKIA[0-9A-Z]{16}'
+  private_key: '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+  slack_token: 'xox[abprs]-[A-Za-z0-9-]{10,}'
+  generic_secret_assignment: '(?i)(api[_-]?key|secret|password|token)\s*[:=]\s*["''][A-Za-z0-9/+_=-]{24,}["'']'
