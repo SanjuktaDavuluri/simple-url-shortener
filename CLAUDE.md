@@ -47,7 +47,11 @@ Introduce each one **only when its phase arrives**, so the history shows it bein
 
 ## Status
 
-- **Release 1 complete** (`v1.0.0`, spec 0001). **Release 2 in progress** (milestone 2): spec 0002, the delivery orchestrator (R18). Tickets #26–#29, #31 and #32 are merged; **#30, #33, #34 and #35 remain**. Then the rest of Release 2, in roadmap order: R10 → R2 ∥ R12 → R11 → R21. Release 3 is designed (ADRs 0016–0019; approaches in `docs/roadmap.md`).
+- **Release 1 complete** (`v1.0.0`, spec 0001). **Release 2 in progress** (milestone 2):
+  - **Done:** the delivery orchestrator (R18, spec 0002, tickets #26–#35), and the Clickstream (R10, spec 0003, ADR 0021), delivered by orchestrator Run R-0001 (#49, close-out #71; evidence in `delivery/runs/R-0001/` and `delivery/metrics.md`). The engineering summary is in `docs/summary.md` (#72).
+  - **Open:** orchestrator fixes found in R-0001: #74–#79.
+  - **Next, in roadmap order, each as an orchestrator Run:** R2 ∥ R12 → R11 → R21, then the Release 2 close-out.
+- Release 3 is designed (ADRs 0016–0019; approaches in `docs/roadmap.md`).
 - **Service:** Java 25 + Spring Boot 4.1.1, Maven Wrapper; SQLite via `JdbcClient` with Flyway (ADRs 0001–0006). Base package `io.github.sanjuktadavuluri.shortener` (URL Rules in `rules`). `BASE_URL` builds Short URLs and drives the no-self-link Rule.
 - **Service tests:** `./mvnw verify` is the single entry point (Spotless, Error Prone, JUnit 5 + AssertJ). `*Test` are unit tests and `*IT` are integration tests extending `IntegrationTest`: a shared context, the database reset before each test, a scripted `ShortCodeGenerator`, and extra instances via `TestApps`. Update the matrix in `docs/plans/0001-integration-testing.md` in each ticket's PR. Browser checks and Lighthouse live in `e2e/` (median of 3 runs, ≥ 90).
 - **Orchestrator:** Python 3.13 + uv, LangGraph, Claude Agent SDK (from #35). Tests drive the `orchestrate` command with a scripted agent and an in-memory GitHub, plus the policy check. Run `ruff`, `mypy --strict` and `pytest`. See `orchestrator/README.md`.
