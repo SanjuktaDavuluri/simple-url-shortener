@@ -3,6 +3,7 @@
 These run in **real Chrome** against a running app, covering what the JVM tests can't see (plan 0001, P4):
 
 - `browser-checks.js` (Playwright): HTMX swaps without a reload, the copy button and "Copied ✓", the clipboard contents, screen-reader announcements, inline 422 with focus returned to the field, no JavaScript errors and no 404s, the favicon, and the whole flow with JavaScript disabled.
+  - **Expiring Links (spec 0004, #101)**, once with JavaScript (HTMX swap) and once without (full-page form post): a Long URL with "Expires after (days)" 30 shows the Short URL and an "Expires on YYYY-MM-DD HH:MM UTC" line 30 days on (to the minute, ±2 min), and a Lifetime of 0 shows "expires_in_days must be a whole number of days from 1 to 365." under the field with both typed values kept. 26 checks in all.
 - `lighthouse.js`: mobile and desktop Lighthouse; every category must score **≥ 90** (ADR 0006). HTML and JSON reports for every run, plus `lighthouse-summary.json`, are written to `e2e/reports/`.
 
 ### Why the Lighthouse gate uses a warm-up and the median of 3 runs
