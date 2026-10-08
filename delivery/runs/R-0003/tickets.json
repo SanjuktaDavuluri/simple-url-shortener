@@ -1,0 +1,122 @@
+[
+  {
+    "key": "T1",
+    "title": "Creating a Link over the JSON API returns a Manage Token once and stores only its SHA-256 hash (tracer bullet: create → token → links.manage_token_hash)",
+    "kind": "Feature",
+    "blocked_by": [],
+    "what": "The end-to-end slice for issuing a Manage Token on the create path, test-first with the tdd skill. Add the `ManageTokenGenerator` interface and `RandomManageTokenGenerator` (32 bytes from `SecureRandom`, unpadded base64url, 43 characters). Add `ManageTokens`, the one place that hashes a token (SHA-256 of its UTF-8 bytes, lower-case hex, no salt, no key: ADR 0023). Add Flyway `V3__add_manage_token_hash.sql` (`ALTER TABLE links ADD COLUMN manage_token_hash TEXT`, nullable, no index). If spec 0004's V3 (`expires_at`) has merged first, renumber this one to V4. `LinkStore.save(shortCode, longUrl, manageTokenHash)` replaces `save(shortCode, longUrl)` in `JdbcLinkStore`; collision handling and `findLongUrl` (the Redirect read) stay unchanged. `LinkService.create` generates the token once per Link, only after the Rule Set has passed, and saves its hash. `Link` carries `manageToken` in memory only, and its `toString` doesn't print it. `LinkController.createLink` adds `manage_token` to the `201` body and sets `Cache-Control: no-store`. Every other field, status code and error stays exactly the same. Test harness: a `ScriptedManageTokenGenerator` in `IntegrationTest`'s shared context (modelled on `ScriptedShortCodeGenerator`) and a helper that creates a Link and returns its token. Add the Manage Token to `CONTEXT.md` (avoid: API key, password, access code). Set spec 0005 to `in-progress`. Spec 0005: stories 1, 2, 5, 6, 7, 21 and 26; Implementation Decisions (Manage Token, Token hash, Link, Link Store, Schema, Caching, Logging); API Contract `POST /links`. ADRs 0014 and 0023.",
+    "acceptance": [
+      "`RandomManageTokenGenerator` unit tests: every token is 43 characters of the base64url alphabet with no padding, and there are no repeats over many draws",
+      "`ManageTokens` unit test: hashing a fixed token gives its known SHA-256 lower-case hex digest (written out in the test, not recomputed)",
+      "`POST /links` returns `201` with `manage_token` equal to the scripted value, `short_code`, `short_url` and `long_url` unchanged, and `Cache-Control: no-store`. The existing `LinkApiIT`, `RejectionIT` and `CollisionIT` tests pass with only the new field added",
+      "Two Links created in a row get different tokens, and the stored `manage_token_hash` of each is the 64-character SHA-256 hex of its token, never the token itself",
+      "`422` (Rejection Reason or malformed body) and `503` (no free Short Code) responses carry no token, and the Rule Set rejection draws no token",
+      "`Link.toString()` does not contain the token, and the token appears in no captured log output (`OutputCaptureExtension`) of a create",
+      "V3 applies to an empty database before every test, and a `TestApps` instance started on an R10 database with Links and Clicks migrates forward: old Links have a `NULL` hash and keep Redirecting exactly as before",
+      "The Redirect tests from Release 1 and spec 0003 pass unchanged",
+      "`CONTEXT.md` defines Manage Token; spec 0005's status is `in-progress`; plan 0001 gains phase P9: Stats, the scripted Manage Token generator in its fixtures, matrix rows for this ticket and a spec 0005 coverage table",
+      "`./mvnw verify` passes"
+    ]
+  },
+  {
+    "key": "T2",
+    "title": "Read a Link's headline Stats over the JSON API with the Manage Token; every failure is the same 404 (tracer bullet: GET /links/{code}/stats → LinkStatsService → Click Store summarise)",
+    "kind": "Feature",
+    "blocked_by": [
+      "T1"
+    ],
+    "what": "The first HTTP read path over Clicks, test-first. `ManageTokens` gains a constant-time match (`MessageDigest.isEqual` on hashes). When the Link is unknown or has no hash, it still hashes the presented token and compares it against a fixed dummy hash (ADR 0023). `LinkStore` gains `findForStats(shortCode)`, which returns the Short Code, Long URL, `created_at` and an optional Manage Token hash. `ClickStore` gains `summarise(shortCode, Instant windowStart)`, which returns a Click Summary. In this slice that is the counts by Agent Category and the latest non-bot `clicked_at`, computed in `JdbcClickStore` with `GROUP BY` queries inside one read transaction. The Click Store stays the only code that reads `clicks`, and `saveAll` and `listClicks` are unchanged. Add a new `stats` package with `LinkStatsService.statsFor(shortCode, presentedToken)` returning `Optional<LinkStats>`. It checks the token first and touches the Click Store only after a match. Empty means `404`, with no reason given. Add `LinkStatsController`: `GET /links/{shortCode:[A-Za-z0-9]{7}}/stats`, with `Authorization` parsed case-insensitively for `Bearer`. It returns `200` JSON with `short_code`, `short_url`, `long_url`, `created_at`, `generated_at` (from the injected `Clock`), `clicks` (`browser` + `other`, all time), `bot_clicks`, `last_click_at` (null if none) and `by_agent_category` (all three keys always present), with `Cache-Control: no-store`. Otherwise it returns the single `404` `application/problem+json` body from the contract. Times are ISO-8601 UTC to the millisecond. Add Stats and Headline Click count to `CONTEXT.md`. Spec 0005: stories 8, 10, 12, 15–17, 19–24; Implementation Decisions (Token hash, Link Store, Click Store, Link Stats service, Headline count, JSON endpoint, Caching, Logging); API Contract `GET /links/{short_code}/stats`; Testing Decisions seams 1, 3 and 4.",
+    "acceptance": [
+      "`ManageTokens` unit tests: a matching token matches, a non-matching one doesn't, and the unknown or no-hash path still hashes and compares against the dummy hash and never matches",
+      "`LinkStatsService` unit tests with stand-ins: an unknown Short Code, a Link without a hash and a wrong token all return empty, and the Click Store is not called unless the token matches",
+      "Click Store `summarise` integration tests (through `saveAll` with hand-built Clicks): counts per Agent Category, the latest non-bot `clicked_at` ignoring a later bot Click, and an empty summary for an unknown Short Code",
+      "Over HTTP, after real Redirects with chosen `User-Agent` headers and a `flush()` of the Click Recorder (no sleeping), the right token gets `200` with `clicks` excluding bots, `bot_clicks`, `by_agent_category` summing correctly, `last_click_at`, the Link's identity fields, `generated_at` equal to the fixed clock and `Cache-Control: no-store`",
+      "A Link with no Clicks gets `200` with zero counts, all three Agent Category keys at 0 and `last_click_at` null. Two Links' Stats stay separate",
+      "Unknown Short Code, a pre-R2 Link with no hash, no `Authorization` header, a non-Bearer scheme, an empty token, a wrong token and another Link's token each get a `404` whose status, headers and body are byte-for-byte equal to the unknown-Short-Code case, with `Cache-Control: no-store`",
+      "A lower-case `bearer` scheme is accepted, and a path that isn't a 7-character Short Code falls through to Spring's normal `404`",
+      "The Stats body contains none of the raw `Referer` or `User-Agent` values sent, and the token and its hash appear in no captured log output across a successful Stats read and every `404` case",
+      "`CONTEXT.md` defines Stats and Headline Click count; plan 0001's matrix and spec 0005 coverage table gain rows for this ticket",
+      "`./mvnw verify` passes"
+    ]
+  },
+  {
+    "key": "T4",
+    "title": "The web page's create result shows the Manage Token once with a copy button and a keep-it-safe note",
+    "kind": "Feature",
+    "blocked_by": [
+      "T1"
+    ],
+    "what": "A brownfield change to the shortener page, test-first. `PageController.shorten` (`POST /`) passes the Manage Token from `LinkService.create` to `fragments/shortener.html`. The result panel shows it in a read-only field with a copy button (reusing `copy.js`, with no inline script) and the note \"Keep this safe: it's the only way to see this Link's stats, and it won't be shown again.\" The `POST /` response (full page and HTMX fragment) sets `Cache-Control: no-store`. Rejections and `GET /` are otherwise unchanged and show no token. Style changes go in `app.css`. Spec 0005: stories 3 and 7; Implementation Decisions (Create result panel, Caching); Testing Decisions seam 2.",
+    "acceptance": [
+      "`WebPageIT`: a successful `POST /` renders the scripted Manage Token, the copy button and the keep-it-safe note, with `Cache-Control: no-store`",
+      "`WebPageHtmxIT`: an HTMX `POST /` gets only the fragment, containing the token panel, with `Cache-Control: no-store`",
+      "A rejected Long URL renders the Rejection Reason as before, with no token and no token panel",
+      "The copy button copies the token through `copy.js`, and the page has no inline script or style",
+      "Playwright browser checks pass, Lighthouse on `/` still scores ≥ 90 (median of 3), and the token never appears in the page URL",
+      "Plan 0001's matrix and spec 0005 coverage table gain rows for this ticket",
+      "`./mvnw verify` passes"
+    ]
+  },
+  {
+    "key": "T3",
+    "title": "Stats break down Clicks per day over the last 30 UTC days, by Device Class and by top 10 Referrer Hosts",
+    "kind": "Feature",
+    "blocked_by": [
+      "T2"
+    ],
+    "what": "Complete the Stats contents, test-first. Extend the Click Summary from `ClickStore.summarise` so that, over non-bot Clicks only, it has counts by Device Class, the top 10 Referrer Hosts (by count descending, then by host ascending), the count with no Referrer Host, and counts per UTC day from `windowStart`. All of these are computed by `GROUP BY` queries in the same read transaction as T2's numbers, over the `(short_code, clicked_at)` index, never by listing Clicks into memory. `LinkStatsService` builds the 30-day window from the injected `Clock`: today in UTC and the 29 days before it, oldest first, with days that have no Clicks filled with zero. The JSON response gains `clicks_per_day` (exactly 30 `{date, clicks}` entries), `by_device_class` (both keys always present), `top_referrer_hosts` (at most 10 `{host, clicks}`) and `no_referrer_host`. `clicks` stays the all-time count. Spec 0005: stories 11, 13, 14 and 17; Implementation Decisions (Click Store, Link Stats service, Headline count); API Contract field table; Testing Decisions seams 1, 3 and 4.",
+    "acceptance": [
+      "Click Store `summarise` integration tests: counts by Device Class excluding bots, the top-10 cut with 11+ hosts, the tie-break by host ascending, the no-Referrer-Host count, per-day counts starting at `windowStart`, and bot Clicks left out of all of these",
+      "`LinkStatsService` unit tests with a fixed clock: exactly 30 days ending today in UTC, oldest first, days without Clicks filled with zero, and a Click just before UTC midnight lands on the right date",
+      "Over HTTP with a fixed clock, after real Redirects with chosen `Referer` and `User-Agent` headers and a `flush()`: a Click 29 days ago is in `clicks_per_day`, and one 30 days ago is out of the series but still counted in `clicks`",
+      "`by_device_class` sums to `clicks`, `top_referrer_hosts` plus `no_referrer_host` account for every non-bot Click, and bot Clicks appear only in `bot_clicks` and `by_agent_category`",
+      "A Link with no Clicks gets 30 zero days, both Device Class keys at 0, an empty `top_referrer_hosts` and `no_referrer_host` 0",
+      "The Stats body still contains no raw `Referer` URL or `User-Agent` string",
+      "Plan 0001's matrix and spec 0005 coverage table gain rows for this ticket",
+      "`./mvnw verify` passes"
+    ]
+  },
+  {
+    "key": "T5",
+    "title": "Link stats web page: read a Link's Stats with a POST form, with and without HTMX, linked from the create result",
+    "kind": "Feature",
+    "blocked_by": [
+      "T3",
+      "T4"
+    ],
+    "what": "The web page path to Stats, test-first, using `LinkStatsService` without implementing Stats itself (ADR 0006). Add `StatsPageController`. `GET /stats` renders the Stats form, and its optional `short_code` query parameter only pre-fills the Short Code field. A token is never read from the query string. `POST /stats` (form-encoded `short_code`, `manage_token`) renders the Stats on `200`. On every failure it renders the form again with `404` and the message \"No stats found for that Short Code and manage token.\" The Short Code field accepts a bare Short Code or a Short URL that starts with the Base URL; the Short Code is taken from its end. The page follows the shortener's template-and-fragment pattern (`fragments/stats.html`), so `HX-Request` gets only the fragment, and the htmx `responseHandling` config swaps `404` for this form. It shows the Link's identity, the headline Click count, bot Clicks, last Click, the Agent Category and Device Class splits, the top Referrer Hosts with the no-Referrer-Host count, and a note that counts may lag a little (ADR 0012). Clicks per day are an accessible table (date and count) with a CSS-only bar per day, and no chart library or inline script (R20's planned CSP). The token field is `type=\"password\"` with `autocomplete=\"off\"`. Every `/stats` response sets `Cache-Control: no-store`. The create result panel gains a \"See its stats\" link to `/stats?short_code=<code>` (Short Code only, never the token). Spec 0005: stories 4, 9, 18, 20, 21 and 24; Implementation Decisions (Web page, Create result panel, Caching); API Contract web routes; Testing Decisions seam 2 and browser checks.",
+    "acceptance": [
+      "`GET /stats` renders the form, `GET /stats?short_code=Ab3xK9q` pre-fills the Short Code, and `GET /stats?manage_token=…` neither pre-fills nor uses the token",
+      "`POST /stats` with the right token renders the Stats with the expected numbers (after Redirects and a `flush()`), the 30-row per-day table and the lag note, with `Cache-Control: no-store`",
+      "`POST /stats` with an unknown Short Code, a pre-R2 Link, an empty token or a wrong token renders `404` with exactly \"No stats found for that Short Code and manage token.\" in every case, with `Cache-Control: no-store`",
+      "A Short URL starting with the Base URL in the Short Code field works the same as the bare Short Code",
+      "An HTMX request gets only the `fragments/stats` fragment (on both `200` and `404`), and a plain request gets the full page",
+      "The create result panel shows a \"See its stats\" link to `/stats?short_code=<code>` with no token in it",
+      "The token field is `type=\"password\"` with `autocomplete=\"off\"`, and the page has no inline script or style",
+      "Playwright: create a Link on the page, copy the token, follow \"See its stats\", enter the token, see the Stats, and the token is never in the page URL. Lighthouse on `/stats` scores ≥ 90 (median of 3)",
+      "Plan 0001's matrix and spec 0005 coverage table gain rows for this ticket",
+      "`./mvnw verify` passes"
+    ]
+  },
+  {
+    "key": "T6",
+    "title": "Document Stats per Link: architecture flows, onboarding, README, roadmap R2 and spec 0005 coverage",
+    "kind": "Docs",
+    "blocked_by": [
+      "T2",
+      "T3",
+      "T4",
+      "T5"
+    ],
+    "what": "Bring the reviewer's documents in line with what shipped, as spec 0005's \"Documents to update with the tickets\" lists. `docs/architecture.md` gets the create flow with the Manage Token and the Stats flow (Mermaid), following the spec's data-flow diagram. `docs/onboarding.md` explains how to try Stats locally on a scratch instance (`PORT=8765 DATA_DIR=<scratch dir> scripts/local.sh start`): create a Link, keep the token, read Stats with `curl -H 'Authorization: Bearer …'` and on `/stats`, and note that Stats trail Redirects by about one flush interval. The `README.md` map, the spec index in `docs/specs/README.md` (spec 0005 and its status) and the R2 row of `docs/roadmap.md` are updated. Plan 0001's P9 phase and spec 0005 coverage table are checked to map every user story (1–29) to a test or document. The deferrals are recorded in the roadmap: R4 (reissue tokens, tokens for older Links), R12 (never log tokens or `Authorization`, HTTPS required), R19 (rate limiting the Stats endpoint and form) and R21 (OpenAPI for `manage_token` and the Bearer scheme). Set spec 0005 to `implemented`. Spec 0005: stories 27–29; Impact Analysis (Documents to update, Downstream roadmap items).",
+    "acceptance": [
+      "`docs/architecture.md` shows the create-with-token flow and the Stats flow (JSON API and web page) in Mermaid, and says the Redirect path is unchanged",
+      "`docs/onboarding.md` has a working local walkthrough of Stats on a scratch port and data directory that never touches the maintainer's service on port 8000",
+      "`README.md`, the spec index and the R2 row of `docs/roadmap.md` reflect spec 0005 and link to it, ADR 0023 and the tests",
+      "The R4, R12, R19 and R21 follow-ups from spec 0005's Downstream roadmap items are recorded in `docs/roadmap.md`",
+      "Plan 0001's spec 0005 coverage table maps every user story to a test or document, and the P9 phase is marked complete",
+      "Spec 0005's status is `implemented` and the index agrees",
+      "Markdown links resolve and `./mvnw verify` still passes"
+    ]
+  }
+]
