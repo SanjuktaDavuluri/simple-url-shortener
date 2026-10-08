@@ -134,6 +134,27 @@ def show(workspace: Workspace, ref: str, path: str) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
+def bring_in_main(tree: Path, message: str) -> list[str] | None:
+    """Merge origin/main into the worktree's branch when it is behind. Returns None when there
+    was nothing to take in, [] when it merged cleanly, or the conflicting files (merge undone)."""
+    _git(tree, "fetch", "--quiet", "origin")
+    if (
+        _run(tree, "merge-base", "--is-ancestor", "origin/main", "HEAD", check=False).returncode
+        == 0
+    ):
+        return None
+    if (
+        _run(
+            tree, "merge", "--quiet", "--no-edit", "-m", message, "origin/main", check=False
+        ).returncode
+        == 0
+    ):
+        return []
+    conflicts = _git(tree, "diff", "--name-only", "--diff-filter=U").split()
+    _run(tree, "merge", "--abort", check=False)
+    return conflicts
+
+
 def bring_in(tree: Path, ref: str, message: str) -> None:
     """Merge `ref` into the worktree's branch (a fast-forward when possible), never rewriting it."""
     _git(tree, "fetch", "--quiet", "origin")

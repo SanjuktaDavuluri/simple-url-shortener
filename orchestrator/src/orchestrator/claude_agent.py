@@ -133,6 +133,8 @@ def options(request: StepRequest, hook: HookCallback) -> ClaudeAgentOptions:
         allowed_tools=TOOLS,
         permission_mode="dontAsk",  # anything not allowed above is refused, never prompted
         setting_sources=["project"],  # the repository's CLAUDE.md, not the engineer's settings
+        mcp_servers={},
+        strict_mcp_config=True,  # no MCP servers, not even the engineer's own connectors
         max_budget_usd=request.budget_usd or None,
         hooks={"PreToolUse": [HookMatcher(hooks=[hook])]},
         output_format={"type": "json_schema", "schema": SCHEMAS.get(request.stage, {})},
@@ -158,7 +160,8 @@ def step_result(result: ResultMessage, model: str, written: list[str]) -> StepRe
         duration_ms=int(result.duration_ms),
     )
     if result.is_error or result.structured_output is None:
-        reason = "; ".join(result.errors or []) or result.subtype
+        said = "; ".join([*(result.errors or []), *([result.result] if result.result else [])])
+        reason = f"{result.subtype}: {said[:300]}" if said else result.subtype
         raise AgentFailed(f"the agent step ended without its answer ({reason})", spent)
     return spent
 

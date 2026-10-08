@@ -17,9 +17,9 @@ from orchestrator.github import Check
 TICKET = ticket("T1", "Store expiry on a Link")
 
 
-def git(cwd: Path, *args: str) -> str:
+def git(cwd: Path, *args: str, check: bool = True) -> str:
     return subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, check=True
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=check
     ).stdout
 
 
@@ -434,3 +434,14 @@ def test_a_lane_that_keeps_failing_stays_in_progress_until_rolled_back(
     assert github.board[100]["Status"] == "In Progress"
     orchestrate("reject", "R-0001", "lane:T1", "--reason", "Rethink.")
     assert github.board[100] == {"Status": "Todo", "Release": "2", "Kind": "Feature"}
+
+
+def test_the_default_verify_command_finds_jdk_25_itself() -> None:
+    """Exit Gates run `./mvnw` in a Lane's worktree without JAVA_HOME exported (#62)."""
+    from orchestrator.settings import Settings
+
+    assert Settings().verify_command.startswith("scripts/with-jdk.sh ")
+    shipped = (Path(__file__).resolve().parents[1] / "settings.yaml").read_text()
+    assert "verify_command: scripts/with-jdk.sh ./mvnw -B -q verify" in shipped
+    script = Path(__file__).resolve().parents[2] / "scripts" / "with-jdk.sh"
+    assert script.is_file() and script.stat().st_mode & 0o111

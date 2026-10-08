@@ -225,3 +225,25 @@ def test_every_step_carries_the_model_from_the_runs_settings(
     orchestrate("start", "42")
 
     assert {r.model for r in agent.requests} == {"claude-sonnet-5-5"}
+
+
+# Found in the first real Run (#62)
+
+
+def test_a_failed_step_says_why_in_the_sdks_own_words() -> None:
+    with pytest.raises(AgentFailed) as failed:
+        step_result(
+            result(structured_output=None, result="You've hit your session limit · resets 2am"),
+            "claude-opus-5-5",
+            [],
+        )
+
+    assert "You've hit your session limit · resets 2am" in failed.value.reason
+
+
+def test_a_step_sees_no_mcp_servers_not_even_the_engineers_own(repo: Path, tmp_path: Path) -> None:
+    req = request(tmp_path, repo)
+
+    opts = options(req, policy_hook(req, []))
+
+    assert opts.strict_mcp_config is True and opts.mcp_servers == {}
