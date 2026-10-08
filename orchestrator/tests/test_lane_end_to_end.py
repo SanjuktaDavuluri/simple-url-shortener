@@ -384,3 +384,53 @@ def test_release_readiness_fails_on_a_commit_without_its_ticket(
     _, out = orchestrate("status", "R-0001")
     assert "State: paused" in out
     assert not [n for n, p in github.prs.items() if p.head == "docs/run-R-0001-close-out"]
+
+
+# The delivery board follows each Lane (#58)
+
+
+def test_a_lanes_ticket_moves_on_the_board_from_in_progress_to_in_review_to_done(
+    orchestrate: Orchestrate,
+    github: InMemoryGitHub,
+    agent: ScriptedAgent,
+    repo: Path,
+    published: Callable[[], int],
+) -> None:
+    lane_script(agent)
+    published_fields = None
+
+    def implement_and_look(request: StepRequest) -> StepResult:
+        nonlocal published_fields
+        published_fields = dict(github.board[100])  # while the Lane is implementing
+        return writes({"feature.txt": "expiry\n"})(request)
+
+    agent.script["implement"] = [implement_and_look]
+
+    pr = through_docs_pr(orchestrate, github, repo, published)
+
+    assert published_fields == {"Status": "In Progress", "Release": "2", "Kind": "Feature"}
+    assert github.board[100] == {
+        "Status": "In Review",
+        "Release": "2",
+        "Kind": "Feature",
+    }  # waiting for merge
+    merge(repo, github, pr)
+    orchestrate("resume", "R-0001")
+    assert github.board[100] == {"Status": "Done", "Release": "2", "Kind": "Feature"}
+
+
+def test_a_lane_that_keeps_failing_stays_in_progress_until_rolled_back(
+    orchestrate: Orchestrate,
+    github: InMemoryGitHub,
+    agent: ScriptedAgent,
+    repo: Path,
+    published: Callable[[], int],
+) -> None:
+    lane_script(agent, *(writes({"other.txt": "x"}) for _ in range(3)))
+    merge(repo, github, published())
+
+    orchestrate("resume", "R-0001")  # verify fails three times: the Lane pauses
+
+    assert github.board[100]["Status"] == "In Progress"
+    orchestrate("reject", "R-0001", "lane:T1", "--reason", "Rethink.")
+    assert github.board[100] == {"Status": "Todo", "Release": "2", "Kind": "Feature"}

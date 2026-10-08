@@ -100,7 +100,8 @@ class InMemoryGitHub:
         self.blocked_by.setdefault(issue, []).append(blocker)
 
     def add_to_board(self, issue: int, fields: dict[str, str]) -> None:
-        self.board[issue] = dict(fields)
+        """Like the real board: adds the item once, and sets only the fields named."""
+        self.board[issue] = {**self.board.get(issue, {}), **fields}
 
     def create_pr(self, head: str, base: str, title: str, body: str) -> int:
         number = next(self._numbers)
