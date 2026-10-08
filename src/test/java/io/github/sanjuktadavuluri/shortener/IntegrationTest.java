@@ -7,6 +7,7 @@ import io.github.sanjuktadavuluri.shortener.clicks.ClickStore;
 import io.github.sanjuktadavuluri.shortener.clicks.QueuedClickRecorder;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.flywaydb.core.Flyway;
@@ -90,6 +91,17 @@ abstract class IntegrationTest {
   /** POSTs {@code {"url": longUrl}} to the API, serialised by Jackson. */
   MvcTestResult postLink(String longUrl) {
     return postBody(JSON.writeValueAsString(Map.of("url", longUrl)), MediaType.APPLICATION_JSON);
+  }
+
+  /**
+   * POSTs {@code {"url": longUrl, "expires_in_days": expiresInDays}} to the API, serialised by
+   * Jackson. {@code expiresInDays} may be {@code null}, which is sent as JSON {@code null}.
+   */
+  MvcTestResult postLink(String longUrl, Object expiresInDays) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("url", longUrl);
+    body.put("expires_in_days", expiresInDays);
+    return postBody(JSON.writeValueAsString(body), MediaType.APPLICATION_JSON);
   }
 
   /** POSTs a raw body to the API, for malformed-request tests. */
