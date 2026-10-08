@@ -1,5 +1,6 @@
 """Test doubles for the orchestrator's two external adapters (spec 0002, seam 1)."""
 
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from itertools import count
@@ -138,18 +139,23 @@ class ScriptedAgent:
     """Returns pre-scripted results per Stage, in order, and records every request.
 
     A scripted entry may be a function of the request, so it can write files into the workspace
-    the way a real agent would. With nothing scripted for a Stage, it asks a generic question.
+    the way a real agent would. Lanes run concurrently, so a Lane's steps can be scripted under
+    `"<stage>:<lane key>"`; otherwise they come from the Stage's own list. With nothing scripted,
+    it asks a generic question.
     """
 
     script: dict[str, list[Scripted]] = field(default_factory=dict)
     requests: list[StepRequest] = field(default_factory=list)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def run(self, request: StepRequest) -> StepResult:
-        self.requests.append(request)
-        queue = self.script.get(request.stage, [])
-        if not queue:
+        with self._lock:
+            self.requests.append(request)
+            lane = request.context.get("ticket", {}).get("key")
+            queue = self.script.get(f"{request.stage}:{lane}") or self.script.get(request.stage)
+            entry = queue.pop(0) if queue else None
+        if entry is None:
             return StepResult(
                 output={"question": "What should happen?", "recommendation": "Keep it simple."}
             )
-        entry = queue.pop(0)
         return entry(request) if callable(entry) else entry

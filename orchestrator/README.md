@@ -2,8 +2,8 @@
 
 The **delivery plane** of this repository: a development-time command-line tool that drives a GitHub Issue through gated Stages to merge-ready pull requests, under human control. It never deploys, and it never connects to a running service (ADR 0007).
 
-- **Spec:** [0002](../docs/specs/0002-delivery-orchestrator.md) · **Decisions:** ADRs [0007](../docs/adr/0007-delivery-orchestrator.md)–[0011](../docs/adr/0011-orchestrator-replanning-and-lineage.md) · **Vocabulary:** the Delivery section of [`CONTEXT.md`](../CONTEXT.md)
-- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28), **lanes → release readiness → close-out** for tickets one at a time (#29), **policy guardrails** (#32), and **failure handling**: retries, pause and resume, Rollback, Safe-stop and cost caps (#31). Parallel Lanes, Re-plan, metrics and the real agent arrive with #30 and #33–#35 (Release 2).
+- **Spec:** [0002](../docs/specs/0002-delivery-orchestrator.md) · **Decisions:** ADRs [0007](../docs/adr/0007-delivery-orchestrator.md)–[0011](../docs/adr/0011-orchestrator-replanning-and-lineage.md) and [0020](../docs/adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md) · **Vocabulary:** the Delivery section of [`CONTEXT.md`](../CONTEXT.md)
+- **Status:** intake (#26), **requirements** with the spec approval (#27), **design** with one approval per ADR and **decompose** with the ticket approval and publishing (#28), **lanes → release readiness → close-out** (#29), **policy guardrails** (#32), **failure handling**: retries, pause and resume, Rollback, Safe-stop and cost caps (#31), and **parallel Lanes** joined before release readiness (#30). Re-plan, metrics and the real agent arrive with #33–#35 (Release 2).
 
 ## Setup
 
@@ -23,10 +23,10 @@ Run it from anywhere inside the repository; it finds the repository root with gi
 |---|---|
 | `orchestrate start <issue>` | Starts a Run (`R-NNNN`) for the Issue and runs intake: records the Issue with content hashes and links the roadmap item it names. Then the requirements Stage asks its first clarifying question on the Issue, or writes the spec. Refuses an Issue that already has an active Run |
 | `orchestrate status [run]` | Without a Run: lists every Run. With one: its Stages, what it is waiting for (an answer, an approval), and cost so far |
-| `orchestrate resume <run> [--cost-cap-run USD]` | Continues a Run. It reads your reply to the open question, or a maintainer's `approved:<checkpoint>` label added after the approval was requested, and re-reads PR checks and merges. It retries a paused Stage with fresh attempts, and continues a stopped Run from the step after the last one that finished. `--cost-cap-run` raises the Run's cost cap first. When nothing has changed, it does nothing and says what the Run is waiting for |
+| `orchestrate resume <run> [--cost-cap-run USD]` | Continues a Run. It reads your reply to the open question, or a maintainer's `approved:<checkpoint>` label added after the approval was requested, and re-reads PR checks and merges. It retries a paused Stage (or every paused Lane) with fresh attempts, and continues a stopped Run from the step after the last one that finished. `--cost-cap-run` raises the Run's cost cap first. When nothing has changed, it does nothing and says what the Run is waiting for |
 | `orchestrate stop <run>` | Safe-stop: the current step finishes, later steps wait for `resume`. Works from another terminal while a command is running the Run, and while the Run waits on a human. A `stop` label on the Issue does the same; remove it before resuming |
 | `orchestrate approve <run> <checkpoint>` | Approves `spec`, `adr-NNNN` (one per ADR) or `tickets`. The approval is bound to the content hash that was submitted; if the file changed since, it is refused |
-| `orchestrate reject <run> <checkpoint> --reason "…"` | Rejects with a reason; the Stage revises and asks for approval again (an earlier label no longer counts). `reject <run> lane:<key>` rolls back a Lane that is paused |
+| `orchestrate reject <run> <checkpoint> --reason "…"` | Rejects with a reason; the Stage revises and asks for approval again (an earlier label no longer counts). `reject <run> lane:<key>` rolls back a Lane that is paused (any of them, when several are) |
 | `orchestrate verify <run>` / `--all` | Checks that Event Logs are intact (sequence, each event's hash, the link to the previous event) and names the first broken event |
 
 ## How a Run talks to you
@@ -45,7 +45,7 @@ Run it from anywhere inside the repository; it finds the repository root with gi
 | design | ADRs at `docs/adr/NNNN-<slug>.md` (`status: proposed`), or "no ADR" with a reason | Options table with gains and costs, exactly one **Chosen**, Rejected alternatives, Consequences, a number not used on `main`; accepted ADRs never change | `adr-NNNN`, one per ADR; approval marks it `accepted` |
 | decompose | `delivery/runs/R-NNNN/tickets.json`: vertical slices with blocking edges | At least one ticket; unique keys; acceptance criteria; a known kind; blockers that exist; no cycles | `tickets`; approval publishes the Issues blockers first, with `ready-for-agent`, the Release milestone, the board entry and native "blocked by" links |
 
-| lanes | First a PR that takes the Run's documents to `main`; then, per ticket, `feat/<issue>-<slug>` in its own worktree: **implement** → **document** → **PR** (`Closes #<issue>`) | implement: `verify_command` passes in the worktree, plus browser checks against a **temporary instance** when web paths changed; PR: every required check on the pushed commit is green (a failure goes back to implement with the check output) | `merge:<pr>`: a human merges on GitHub; the orchestrator never merges |
+| lanes | First a PR that takes the Run's documents to `main`; then, per ticket and in parallel where blocking edges allow (below), `feat/<issue>-<slug>` in its own worktree: **implement** → **document** → **PR** (`Closes #<issue>`) | implement: `verify_command` passes in the worktree, plus browser checks against a **temporary instance** when web paths changed; PR: every required check on the pushed commit is green (a failure goes back to implement with the check output) | `merge:<pr>`: a human merges on GitHub; the orchestrator never merges |
 | release readiness | — | Every PR merged; every Lane PR says `Closes #<issue>`; every commit references its ticket; every approval has an approver | — |
 | close-out | `delivery/runs/R-NNNN/report.md` and `events.jsonl`, spec marked `implemented`, in one PR | — | that PR's merge |
 
@@ -53,12 +53,34 @@ A failing gate goes back to the agent with its problems, up to `max_retries` tim
 
 **Temporary instances.** A check that needs a running app starts it from the Lane's worktree with `app_start_command` on a free port and a fresh `DATA_DIR`, runs `browser_check_command` against `BASE_URL`, then always runs `app_stop_command` and deletes the data directory. Your own service (for example on :8000) is never touched. The commands are settings, so tests replace them with probes.
 
+## Parallel Lanes
+
+Lanes fan out along the tickets' blocking edges and join before release readiness (ADR 0020).
+
+```mermaid
+flowchart LR
+    docs["docs PR merged"] --> schedule["lanes_schedule<br/>poll PRs · skip · start Lanes<br/>(≤ max_parallel_lanes in flight)"]
+    schedule -- "Send, one per Lane<br/>with agent work" --> work1["lane_work: T1<br/>implement → verify → document → PR"]
+    schedule -- "Send" --> work2["lane_work: T2"]
+    work1 --> join["lanes_join"]
+    work2 --> join
+    join --> schedule
+    schedule -. "nothing to run" .-> wait["one wait: rollback · paused Lanes ·<br/>dependency approval · checks and merges"]
+    wait -. "resume / approve / reject" .-> schedule
+    schedule -- "every Lane merged,<br/>rolled back or skipped" --> done["lanes_done → release readiness"]
+```
+
+- **A Lane starts** when every ticket blocking it has merged, so it branches from a `main` that already has their work. At most `max_parallel_lanes` Lanes are in flight, from `lane_started` until merged or rolled back (`lane_finished`); a freed slot goes to the next ready Lane at the next join.
+- **Agent work runs concurrently**, one branch per Lane, each up to its next wait. Branches never wait for a human; `status` shows every PR waiting on checks or a merge at once.
+- **Shared state stays consistent:** Lanes are merged into the Run's state by key, and Event Log appends and git commands run one at a time.
+
 ## Failure handling
 
 | Situation | What happens |
 |---|---|
 | An Exit Gate fails | Its output goes back to the agent; each retry is a `retry` event, up to `max_retries` |
 | Retries run out | The Stage fails and the Run **pauses**, posting the last problems on the Issue. `orchestrate resume` retries the Stage with fresh attempts. In a Lane, `orchestrate reject <run> lane:<key> --reason "…"` **rolls it back** instead |
+| A Lane pauses | Only that Lane stops; independent Lanes keep working and reach their PRs. The Run waits once nothing else can move |
 | A Lane is rolled back, or a human closes its PR unmerged | Its PR is closed, its branch and worktree deleted, and its ticket goes back to Todo with a comment (`lane_rolled_back`). Lanes that merged are kept; Lanes blocked by it are skipped (`lane_skipped`); independent Lanes continue. The Run finishes as *partially delivered*, and the report lists what was rolled back or skipped |
 | `orchestrate stop`, or a `stop` label | **Safe-stop** at the next step boundary (`safe_stop`): the finished step is kept and nothing is repeated on `resume` |
 | The Run's spend reaches `cost_cap_run_usd` | Safe-stop before the next agent step. `resume --cost-cap-run <usd>` raises the cap (`settings_changed`) and continues |

@@ -6,7 +6,7 @@ A small, backend-focused URL shortener, built in the open as a **complete SDLC c
 2. **Brownfield**: evolving the running system feature by feature.
 3. **Reliability**: making it production-grade, with measurements.
 
-> **Status:** **Release 1 (greenfield) complete**, tagged [`v1.0.0`](docs/releases/v1.0.0.md). [Spec 0001](docs/specs/0001-v1-core.md) is implemented: the JSON API (create, Redirect, URL Rules, Collision handling) and the web page (works with or without JavaScript; Lighthouse 100 in every category). **Releases 2 and 3 are designed** (ADRs 0007–0019); Release 2 (delivery orchestrator, analytics, operability) is next on the [roadmap](docs/roadmap.md). **Track the work:** [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) · [milestones](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestones).
+> **Status:** **Release 1 (greenfield) complete**, tagged [`v1.0.0`](docs/releases/v1.0.0.md). [Spec 0001](docs/specs/0001-v1-core.md) is implemented: the JSON API (create, Redirect, URL Rules, Collision handling) and the web page (works with or without JavaScript; Lighthouse 100 in every category). **Releases 2 and 3 are designed** (ADRs 0007–0020); Release 2 (delivery orchestrator, analytics, operability) is next on the [roadmap](docs/roadmap.md). **Track the work:** [delivery board](https://github.com/users/SanjuktaDavuluri/projects/1) · [milestones](https://github.com/SanjuktaDavuluri/simple-url-shortener/milestones).
 
 ## Reviewer's guide: start here
 
@@ -84,7 +84,7 @@ flowchart LR
 
 ## The delivery orchestrator
 
-*Being built in Release 2 (roadmap R18, tickets #26–#35). Available now: a full Run for tickets one at a time, under policy guardrails, with retries, pause and resume, Rollback, Safe-stop and cost caps: intake, requirements, design, decompose, Lanes (implement → document → PR → human merge), release readiness and close-out, via `start`, `status`, `resume`, `approve`, `reject` and `verify`. See [`orchestrator/README.md`](orchestrator/README.md).*
+*Being built in Release 2 (roadmap R18, tickets #26–#35). Available now: a full Run with parallel Lanes, under policy guardrails, with retries, pause and resume, Rollback, Safe-stop and cost caps: intake, requirements, design, decompose, Lanes (implement → document → PR → human merge), release readiness and close-out, via `start`, `status`, `resume`, `approve`, `reject` and `verify`. See [`orchestrator/README.md`](orchestrator/README.md).*
 
 An engineer starts a run from a GitHub Issue: `orchestrate start <issue>`. The orchestrator then drives the request through fixed stages: **intake → requirements → design → decompose → per-ticket lanes (implement → document → PR) → release readiness → close-out**. Each stage has an exit gate. A human approves the spec, any ADRs, the tickets and every merge. Each run leaves a tamper-evident event log and a report in the repository, and delivery metrics are derived from them.
 
@@ -95,6 +95,7 @@ An engineer starts a run from a GitHub Issue: `orchestrate start <issue>`. The o
 | State, the hash-chained audit trail and delivery metrics | [0009](docs/adr/0009-orchestrator-state-audit-and-metrics.md) |
 | Policy guardrails, checked before every action and after every step | [0010](docs/adr/0010-orchestrator-policy-guardrails.md) |
 | Re-planning when inputs change, without redoing unaffected work | [0011](docs/adr/0011-orchestrator-replanning-and-lineage.md) |
+| Parallel Lanes: agent work fans out in the graph, human waits are held at the join | [0020](docs/adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md) |
 
 ## Decisions
 
@@ -121,6 +122,7 @@ Every significant decision is an ADR that lists the options weighed and why one 
 | [0017](docs/adr/0017-strict-content-security-policy-and-security-headers.md) | Strict, enforced Content-Security-Policy and security headers | Security |
 | [0018](docs/adr/0018-private-address-rule-without-dns.md) | Private-address Rule, checked as written, with no DNS lookup | Security |
 | [0019](docs/adr/0019-staged-evidence-triggered-scaling-path.md) | Staged scaling path, each stage triggered by measurements | Scalability |
+| [0020](docs/adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md) | Parallel Lanes: fan-out in the graph, waits held at the join | Delivery |
 
 ## Quick start
 

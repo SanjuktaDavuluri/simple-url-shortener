@@ -1,19 +1,22 @@
-"""The Lanes Stage (spec 0002, stories 15-18, 25): one ticket at a time through implement → document
-→ PR, each on its own branch and worktree from main, ending in a human merge.
+"""The Lanes Stage (spec 0002, stories 15-19, 25; ADR 0020): each ticket runs as a Lane, implement →
+document → PR on its own branch and worktree from main, ending in a human merge.
 
 Before any Lane starts, the Run's documents (spec, ADRs, ticket breakdown) go to main through a PR,
-so every Lane branches from a main that already has them.
+so every Lane branches from a main that already has them. Then the scheduler starts each Lane once
+its blockers have merged, up to `max_parallel_lanes` at once. Lanes with agent work fan out as
+parallel branches (`lane_work`); each runs to its next wait and returns to the join. Waits on CI,
+merges, approvals and paused Lanes are held after the join, one interrupt at a time.
 """
 
 from collections.abc import Callable
 from typing import Any, Literal
 
-from langgraph.types import interrupt
+from langgraph.types import Send, interrupt
 
 from orchestrator.agent import StepRequest
 from orchestrator.approvals import gate_failed, record_gate, review_step
 from orchestrator.commands import run, with_temporary_instance
-from orchestrator.context import RunContext, marker
+from orchestrator.context import RunContext, RunPaused, RunStopped, marker
 from orchestrator.gitops import (
     changed_since_main,
     commit_all,
@@ -36,16 +39,30 @@ DOCUMENT = """\
 Update the documents ticket #{issue} touched: the spec's status, the integration-testing plan's
 matrix, and the README where behaviour changed. Output docs_updated (paths), or none needed."""
 
+Lane = dict[str, Any]
 PrOf = Callable[[RunState], int]
 
+# A Lane's status. In flight from its start until it merges or is rolled back (ADR 0020).
+IN_FLIGHT = ("working", "paused", "dependency", "awaiting_checks", "awaiting_merge", "rolling_back")
+FINISHED = ("merged", "rolled_back", "skipped")
+# The Stage each phase of a working Lane belongs to
+PHASE_STAGE = {"implement": "implement", "verify": "implement", "document": "document", "pr": "pr"}
 
-def lane(state: RunState) -> dict[str, Any]:
-    return state["lanes"][state["lane_index"]]
+
+def lane(state: RunState) -> Lane:
+    """The Lane a parallel branch works on."""
+    return next(ln for ln in state["lanes"] if ln["key"] == state["current"])
 
 
-def lane_tree(ctx: RunContext, state: RunState) -> Any:
-    current = lane(state)
+def with_status(state: RunState, status: str) -> list[Lane]:
+    return [ln for ln in state["lanes"] if ln["status"] == status]
+
+
+def lane_tree(ctx: RunContext, current: Lane) -> Any:
     return worktree(ctx.workspace, f"{ctx.run}-{current['issue']}", current["branch"])
+
+
+# The Run's documents reach main first
 
 
 class Begin:
@@ -83,40 +100,91 @@ class Begin:
                 "what": t["what"],
                 "acceptance": t["acceptance"],
                 "branch": lane_branch(state["published"][t["key"]], t["title"]),
-                "pr": None,
-                "sha": None,
                 "blocked_by": list(t.get("blocked_by", [])),
                 "status": "pending",
+                "phase": None,
+                "attempts": 0,
+                "feedback": None,
+                "pr": None,
+                "sha": None,
+                "dependency_change": None,
+                "dependency_approved": None,
+                "paused_stage": None,
+                "rollback": None,
             }
             for t in state["tickets"]
         ]
-        return {"docs_pr": pr, "docs_sha": sha, "lanes": lanes, "lane_index": 0}
+        return {"docs_pr": pr, "docs_sha": sha, "lanes": lanes}
+
+
+def checks_outcome(ctx: RunContext, pr: int, sha: str) -> tuple[str, str]:
+    """("passed" | "failed" | "pending", failure output) for the required checks on `sha`."""
+    if ctx.github.pr(pr).state == "merged":  # branch protection only merges on green checks
+        ctx.event("checks_passed", STAGE, {"pr": pr, "sha": sha, "via": "merged"})
+        return "passed", ""
+    checks = ctx.github.pr_checks(pr, sha)
+    failed = [c for c in checks if c.state == "failure"]
+    if failed:
+        ctx.event(
+            "checks_failed", STAGE, {"pr": pr, "sha": sha, "failed": [c.name for c in failed]}
+        )
+        return "failed", "\n".join(f"{c.name}: {c.details}" for c in failed)
+    if checks and all(c.state == "success" for c in checks):
+        ctx.event("checks_passed", STAGE, {"pr": pr, "sha": sha})
+        return "passed", ""
+    return "pending", ""
+
+
+def request_merge(ctx: RunContext, pr: int) -> None:
+    ctx.event("approval_requested", STAGE, {"checkpoint": f"merge:{pr}", "pr": pr})
+    ctx.mirror(
+        f"✅ Approval needed: **merge:{pr}**: PR #{pr} passed its required checks. Review and "
+        "merge it on GitHub (the orchestrator never merges), "
+        f"then run `orchestrate resume {ctx.run}`."
+    )
+
+
+def merge_outcome(ctx: RunContext, number: int) -> str | None:
+    """Merge approval means a human merged the PR on GitHub (spec 0002, story 25)."""
+    pr = ctx.github.pr(number)
+    checkpoint = f"merge:{number}"
+    if pr.state == "merged":
+        ctx.event(
+            "approved",
+            STAGE,
+            {"checkpoint": checkpoint, "by": pr.merged_by, "channel": "github", "hash": None},
+            actor="engineer",
+        )
+        ctx.mirror(f"PR #{number} merged by @{pr.merged_by}.")
+        return "merged"
+    if pr.state == "closed":
+        ctx.event(
+            "rejected",
+            STAGE,
+            {
+                "checkpoint": checkpoint,
+                "by": None,
+                "channel": "github",
+                "reason": f"PR #{number} was closed without merging",
+            },
+        )
+        return "closed"
+    return None
 
 
 class AwaitChecks:
-    """Waits until every required check on the PR's latest commit has finished."""
+    """Waits until every required check on the documents PR's latest commit has finished."""
 
     def __init__(self, ctx: RunContext, pr_of: PrOf, sha_of: Callable[[RunState], str]) -> None:
         self.ctx, self.pr_of, self.sha_of = ctx, pr_of, sha_of
 
     def __call__(self, state: RunState) -> RunState:
-        ctx, pr, sha = self.ctx, self.pr_of(state), self.sha_of(state)
-        if ctx.github.pr(pr).state == "merged":  # branch protection only merges on green checks
-            ctx.event("checks_passed", STAGE, {"pr": pr, "sha": sha, "via": "merged"})
-            return {"ci": "passed"}
-        checks = ctx.github.pr_checks(pr, sha)
-        failed = [c for c in checks if c.state == "failure"]
-        if failed:
-            details = "\n".join(f"{c.name}: {c.details}" for c in failed)
-            ctx.event(
-                "checks_failed", STAGE, {"pr": pr, "sha": sha, "failed": [c.name for c in failed]}
-            )
-            return {"ci": "failed", "ci_output": details}
-        if checks and all(c.state == "success" for c in checks):
-            ctx.event("checks_passed", STAGE, {"pr": pr, "sha": sha})
-            return {"ci": "passed"}
-        interrupt({"kind": "checks", "pr": pr})
-        return {"ci": "recheck"}
+        pr = self.pr_of(state)
+        ci, output = checks_outcome(self.ctx, pr, self.sha_of(state))
+        if ci == "pending":
+            interrupt({"kind": "checks", "pr": pr})
+            return {"ci": "recheck"}
+        return {"ci": ci, "ci_output": output}
 
 
 class RequestMerge:
@@ -124,45 +192,21 @@ class RequestMerge:
         self.ctx, self.pr_of = ctx, pr_of
 
     def __call__(self, state: RunState) -> RunState:
-        ctx, pr = self.ctx, self.pr_of(state)
-        ctx.event("approval_requested", STAGE, {"checkpoint": f"merge:{pr}", "pr": pr})
-        ctx.mirror(
-            f"✅ Approval needed: **merge:{pr}**: PR #{pr} passed its required checks. Review and "
-            "merge it on GitHub (the orchestrator never merges), "
-            f"then run `orchestrate resume {ctx.run}`."
-        )
+        request_merge(self.ctx, self.pr_of(state))
         return {}
 
 
 class AwaitMerge:
-    """Merge approval means a human merged the PR on GitHub (spec 0002, story 25)."""
-
     def __init__(self, ctx: RunContext, pr_of: PrOf) -> None:
         self.ctx, self.pr_of = ctx, pr_of
 
     def __call__(self, state: RunState) -> RunState:
-        ctx, pr_number = self.ctx, self.pr_of(state)
-        pr = ctx.github.pr(pr_number)
-        checkpoint = f"merge:{pr_number}"
-        if pr.state == "merged":
-            ctx.event(
-                "approved",
-                STAGE,
-                {"checkpoint": checkpoint, "by": pr.merged_by, "channel": "github", "hash": None},
-                actor="engineer",
-            )
-            ctx.mirror(f"PR #{pr_number} merged by @{pr.merged_by}.")
-            return {"merge": "merged"}
-        if pr.state == "closed":
-            reason = f"PR #{pr_number} was closed without merging"
-            ctx.event(
-                "rejected",
-                STAGE,
-                {"checkpoint": checkpoint, "by": None, "channel": "github", "reason": reason},
-            )
-            return {"merge": "closed", "rollback_reason": reason, "rollback_by": None}
-        interrupt({"kind": "merge", "pr": pr_number})
-        return {"merge": "recheck"}
+        pr = self.pr_of(state)
+        outcome = merge_outcome(self.ctx, pr)
+        if outcome is None:
+            interrupt({"kind": "merge", "pr": pr})
+            return {"merge": "recheck"}
+        return {"merge": outcome}
 
 
 class DocsChecksFailed:
@@ -183,39 +227,156 @@ class DocsChecksFailed:
         return {"paused": True}
 
 
-class LaneBegin:
+# The scheduler: polls the waiting Lanes, skips and starts Lanes, then fans out the agent work
+
+
+def lane_gate_failed(
+    ctx: RunContext, stage: str, what: str, current: Lane, problems: list[str], retry: str
+) -> Lane:
+    """A Lane's Exit Gate failed: retry `retry` with the problems, or pause the Lane."""
+    result = gate_failed(
+        ctx, stage, what, {"attempts": current["attempts"]}, problems, current["key"]
+    )
+    current = {**current, "attempts": result["attempts"], "phase": retry, "status": "working"}
+    if result.get("paused"):
+        return {**current, "status": "paused", "paused_stage": stage}
+    return {**current, "feedback": result["feedback"]}
+
+
+class Schedule:
+    """Runs after every join. Reads each waiting Lane's PR, skips the Lanes whose blockers didn't
+    merge, and starts each Lane whose blockers all merged, up to `max_parallel_lanes` in flight."""
+
     def __init__(self, ctx: RunContext) -> None:
         self.ctx = ctx
 
     def __call__(self, state: RunState) -> RunState:
-        current = lane(state)
-        failed = {ln["key"] for ln in state["lanes"] if ln["status"] in ("rolled_back", "skipped")}
-        blockers = [b for b in current["blocked_by"] if b in failed]
-        if blockers:
-            data = {"lane": current["key"], "issue": current["issue"], "blocked_by": blockers}
-            self.ctx.event("lane_skipped", "implement", data)
-            self.ctx.mirror(
-                f"Lane **{current['key']}** (#{current['issue']}) skipped: "
-                f"it is blocked by {', '.join(blockers)}, which did not merge."
+        lanes = {ln["key"]: dict(ln) for ln in state["lanes"]}
+        for key, current in lanes.items():
+            if current["status"] == "awaiting_checks":
+                lanes[key] = current = self.checks(current)
+            if current["status"] == "awaiting_merge":
+                lanes[key] = self.merge(current)
+        self.skip(lanes)
+        self.start(lanes)
+        return {"lanes": list(lanes.values())}
+
+    def checks(self, current: Lane) -> Lane:
+        ctx, pr = self.ctx, current["pr"]
+        if ctx.github.pr(pr).state != "open":
+            return {**current, "status": "awaiting_merge"}
+        ci, output = checks_outcome(ctx, pr, current["sha"])
+        if ci == "pending":
+            return current
+        if ci == "failed":
+            problems = [f"Required checks failed on PR #{pr}:\n{output}"]
+            record_gate(ctx, "pr", "required checks pass", problems)
+            return lane_gate_failed(ctx, "pr", "required checks", current, problems, "implement")
+        request_merge(ctx, pr)
+        return {**current, "status": "awaiting_merge"}
+
+    def merge(self, current: Lane) -> Lane:
+        ctx, pr = self.ctx, current["pr"]
+        outcome = merge_outcome(ctx, pr)
+        if outcome == "merged":
+            record_gate(ctx, "pr", "required checks pass", [])
+            ctx.event("stage_passed", "pr", {"lane": current["key"], "pr": pr})
+            ctx.event("lane_finished", "pr", {"lane": current["key"], "outcome": "merged"})
+            return {**current, "status": "merged"}
+        if outcome == "closed":
+            reason = f"PR #{pr} was closed without merging"
+            return {**current, "status": "rolling_back", "rollback": {"reason": reason, "by": None}}
+        return current
+
+    def skip(self, lanes: dict[str, Lane]) -> None:
+        """Skip every pending Lane blocked by a Lane that will not merge, transitively."""
+        changed = True
+        while changed:
+            changed = False
+            failed = {k for k, ln in lanes.items() if ln["status"] in ("rolled_back", "skipped")}
+            for key, current in lanes.items():
+                blockers = [b for b in current["blocked_by"] if b in failed]
+                if current["status"] != "pending" or not blockers:
+                    continue
+                data = {"lane": key, "issue": current["issue"], "blocked_by": blockers}
+                self.ctx.event("lane_skipped", "implement", data)
+                self.ctx.mirror(
+                    f"Lane **{key}** (#{current['issue']}) skipped: "
+                    f"it is blocked by {', '.join(blockers)}, which did not merge."
+                )
+                lanes[key] = {**current, "status": "skipped"}
+                changed = True
+
+    def start(self, lanes: dict[str, Lane]) -> None:
+        ctx = self.ctx
+        limit = max(1, ctx.settings.max_parallel_lanes)
+        in_flight = sum(1 for ln in lanes.values() if ln["status"] in IN_FLIGHT)
+        for key, current in lanes.items():
+            if in_flight >= limit:
+                return
+            ready = all(lanes[b]["status"] == "merged" for b in current["blocked_by"])
+            if current["status"] != "pending" or not ready:
+                continue
+            lane_tree(ctx, current)  # branched from main as it is now, with its blockers merged
+            data = {"lane": key, "issue": current["issue"]}
+            ctx.event("lane_started", "implement", data)
+            ctx.event("stage_started", "implement", data)
+            ctx.mirror(f"Lane **{key}** started: #{current['issue']} {current['title']}.")
+            lanes[key] = {**current, "status": "working", "phase": "implement", "attempts": 0}
+            in_flight += 1
+
+
+def after_schedule(state: RunState) -> list[Send] | str:
+    """Fan out every Lane with agent work; else hold one wait, or join for release readiness."""
+    if with_status(state, "rolling_back"):
+        return "rollback"
+    working = with_status(state, "working")
+    if working:
+        return [Send("lane_work", {**state, "current": ln["key"]}) for ln in working]
+    if with_status(state, "paused"):
+        return "lane_paused"
+    if with_status(state, "dependency"):
+        return "dependency_request_approval"
+    if all(ln["status"] in FINISHED for ln in state["lanes"]):
+        return "lanes_done"
+    return "lanes_wait"
+
+
+class LaneWork:
+    """One Lane's agent work, as a parallel branch: from its current phase to its next wait (its
+    PR's checks, a dependency approval, or a pause). It never interrupts, and a Safe-stop or a
+    policy pause is recorded on the Lane rather than raised, so other branches are not disturbed."""
+
+    def __init__(self, ctx: RunContext) -> None:
+        self.ctx = ctx
+        self.steps: dict[str, Callable[[RunState, Lane], Lane]] = {
+            "implement": self.implement,
+            "verify": self.verify,
+            "document": self.document,
+            "pr": self.open_pr,
+        }
+
+    def __call__(self, state: RunState) -> RunState:
+        ctx, current = self.ctx, dict(lane(state))
+        try:
+            while current["status"] == "working":
+                ctx.check_boundary(PHASE_STAGE[current["phase"]])
+                current = self.steps[current["phase"]](state, current)
+        except RunStopped as stopped:
+            ctx.request_stop(stopped.reason)  # the join's boundary stops the Run
+        except RunPaused as paused:
+            ctx.event("paused", paused.stage, {"reason": paused.reason, "lane": current["key"]})
+            ctx.mirror(
+                f"⏸️ Paused in **{paused.stage}**: {paused.reason}. "
+                f"Resume with `orchestrate resume {ctx.run}`, or roll Lane {current['key']} back "
+                f'with `orchestrate reject {ctx.run} lane:{current["key"]} --reason "…"`.'
             )
-            return {**_with_status(state, "skipped"), "lane_skipped": True}
-        lane_tree(self.ctx, state)
-        self.ctx.event(
-            "stage_started", "implement", {"lane": current["key"], "issue": current["issue"]}
-        )
-        self.ctx.mirror(
-            f"Lane **{current['key']}** started: #{current['issue']} {current['title']}."
-        )
-        return {"attempts": 0, "feedback": None, "lane_skipped": False, "paused": False}
+            current = {**current, "status": "paused", "paused_stage": paused.stage}
+        return {"lanes": [current]}
 
-
-class Implement:
-    def __init__(self, ctx: RunContext) -> None:
-        self.ctx = ctx
-
-    def __call__(self, state: RunState) -> RunState:
-        ctx, current = self.ctx, lane(state)
-        tree = lane_tree(ctx, state)
+    def implement(self, state: RunState, current: Lane) -> Lane:
+        ctx = self.ctx
+        tree = lane_tree(ctx, current)
         ctx.call_agent(
             StepRequest(
                 run=ctx.run,
@@ -228,7 +389,7 @@ class Implement:
                     },
                     "spec": state["spec"],
                     "adrs": state.get("adrs_accepted", []),
-                    "feedback": state.get("feedback"),
+                    "feedback": current["feedback"],
                 },
                 budget_usd=ctx.settings.cost_cap_step_usd,
             )
@@ -236,7 +397,7 @@ class Implement:
         problems, _ = review_step(ctx, "implement", tree, dependencies_allowed=True)
         if problems:
             record_gate(ctx, "implement", "policy", problems)
-            return gate_failed(ctx, "implement", "policy", state, problems, current["key"])
+            return lane_gate_failed(ctx, "implement", "policy", current, problems, "implement")
         prefix = PREFIX.get(current["kind"], "feat")
         commit_all(tree, f"{prefix}: {current['title']} (#{current['issue']})")
         manifests = [
@@ -244,74 +405,17 @@ class Implement:
         ]
         if manifests:
             digest = manifests_hash(tree, manifests)
-            if state.get("dependencies_approved", {}).get(current["key"]) != digest:
+            if current["dependency_approved"] != digest:
                 push(tree, current["branch"])
-                return {
-                    "dependency_change": {"manifests": manifests, "hash": digest},
-                    "feedback": None,
-                }
-        return {"dependency_change": None, "feedback": None}
+                change = {"manifests": manifests, "hash": digest}
+                return {**current, "status": "dependency", "dependency_change": change}
+        return {**current, "phase": "verify", "feedback": None}
 
-
-def dependency_change(state: RunState) -> dict[str, Any]:
-    change = state.get("dependency_change")
-    assert change is not None
-    return change
-
-
-def manifests_hash(tree: Any, manifests: list[str]) -> str:
-    return content_hash("\n".join((tree / m).read_text() for m in manifests))
-
-
-def describe_dependency(state: RunState) -> tuple[str, str, str, str]:
-    change = dependency_change(state)
-    listed = ", ".join(f"`{m}`" for m in change["manifests"])
-    return (
-        f"dependency:{lane(state)['key']}",
-        change["manifests"][0],
-        change["hash"],
-        f"\n\nLane {lane(state)['key']} changes dependency manifests: {listed}. "
-        "Dependency changes always get a human review.",
-    )
-
-
-def dependency_location(state: RunState) -> tuple[str, str, list[str]]:
-    current = lane(state)
-    return (
-        current["branch"],
-        f"{state['run']}-{current['issue']}",
-        dependency_change(state)["manifests"],
-    )
-
-
-class DependencyDecided:
-    def __init__(self, ctx: RunContext) -> None:
-        self.ctx = ctx
-
-    def __call__(self, state: RunState) -> RunState:
-        decision = state["decision"]
-        if not decision["approved"]:
-            return {
-                "feedback": f"{decision['checkpoint']} rejected: {decision['reason']}",
-                "attempts": 0,
-            }
-        approved = {
-            **state.get("dependencies_approved", {}),
-            lane(state)["key"]: dependency_change(state)["hash"],
-        }
-        return {"dependencies_approved": approved, "dependency_change": None}
-
-
-class Verify:
-    """The implement Exit Gate: the verify command, plus browser checks on a temporary instance."""
-
-    def __init__(self, ctx: RunContext) -> None:
-        self.ctx = ctx
-
-    def __call__(self, state: RunState) -> RunState:
-        ctx, current = self.ctx, lane(state)
-        tree = lane_tree(ctx, state)
-        s = ctx.settings
+    def verify(self, state: RunState, current: Lane) -> Lane:
+        """The implement Exit Gate: the verify command, plus browser checks on a temporary
+        instance when the web page changed."""
+        ctx, s = self.ctx, self.ctx.settings
+        tree = lane_tree(ctx, current)
         outcomes = [run(s.verify_command, tree)]
         web = tuple(p for p in s.web_paths.split(",") if p)
         if outcomes[0].ok and any(f.startswith(web) for f in changed_since_main(tree)):
@@ -323,18 +427,13 @@ class Verify:
         problems = [o.problem() for o in outcomes if not o.ok]
         record_gate(ctx, "implement", "verify passes", problems)
         if problems:
-            return gate_failed(ctx, "implement", "verify", state, problems, current["key"])
+            return lane_gate_failed(ctx, "implement", "verify", current, problems, "implement")
         ctx.event("stage_passed", "implement", {"lane": current["key"]})
-        return {"feedback": None}
+        return {**current, "phase": "document", "feedback": None}
 
-
-class Document:
-    def __init__(self, ctx: RunContext) -> None:
-        self.ctx = ctx
-
-    def __call__(self, state: RunState) -> RunState:
-        ctx, current = self.ctx, lane(state)
-        tree = lane_tree(ctx, state)
+    def document(self, state: RunState, current: Lane) -> Lane:
+        ctx = self.ctx
+        tree = lane_tree(ctx, current)
         ctx.event("stage_started", "document", {"lane": current["key"]})
         result = ctx.call_agent(
             StepRequest(
@@ -346,7 +445,7 @@ class Document:
                     "ticket": {k: current[k] for k in ("key", "issue", "title")},
                     "spec": state["spec"],
                     "changed_files": changed_since_main(tree),
-                    "feedback": state.get("feedback"),
+                    "feedback": current["feedback"],
                 },
                 budget_usd=ctx.settings.cost_cap_step_usd,
             )
@@ -354,24 +453,20 @@ class Document:
         problems, _ = review_step(ctx, "document", tree)
         if problems:
             record_gate(ctx, "document", "policy", problems)
-            return gate_failed(ctx, "document", "policy", state, problems, current["key"])
+            return lane_gate_failed(ctx, "document", "policy", current, problems, "document")
         commit_all(tree, f"docs: {current['title']} (#{current['issue']})")
         docs = list(result.output.get("docs_updated", []))
         ctx.event("stage_passed", "document", {"lane": current["key"], "docs_updated": docs})
-        return {"feedback": None, "attempts": 0}
+        return {**current, "phase": "pr", "feedback": None, "attempts": 0}
 
-
-class OpenPr:
-    def __init__(self, ctx: RunContext) -> None:
-        self.ctx = ctx
-
-    def __call__(self, state: RunState) -> RunState:
-        ctx, current = self.ctx, dict(lane(state))
-        sha = push(lane_tree(ctx, state), current["branch"])
-        if current["pr"] is None:
+    def open_pr(self, state: RunState, current: Lane) -> Lane:
+        ctx = self.ctx
+        sha = push(lane_tree(ctx, current), current["branch"])
+        pr = current["pr"]
+        if pr is None:
             prefix = PREFIX.get(current["kind"], "feat")
             spec_url = ctx.github.file_url("main", state["spec"]["path"])
-            current["pr"] = ctx.github.create_pr(
+            pr = ctx.github.create_pr(
                 current["branch"],
                 "main",
                 f"{prefix}: {current['title']} (#{current['issue']})",
@@ -379,59 +474,125 @@ class OpenPr:
                 f"[spec]({spec_url})\n\n## Acceptance criteria\n\n"
                 + "\n".join(f"- [x] {a}" for a in current["acceptance"]),
             )
-            ctx.event("pr_opened", "pr", {"lane": current["key"], "pr": current["pr"], "sha": sha})
-            ctx.mirror(
-                f"Lane **{current['key']}**: PR #{current['pr']} opened; waiting for its checks."
-            )
+            ctx.event("pr_opened", "pr", {"lane": current["key"], "pr": pr, "sha": sha})
+            ctx.mirror(f"Lane **{current['key']}**: PR #{pr} opened; waiting for its checks.")
         else:
-            ctx.event("pr_updated", "pr", {"lane": current["key"], "pr": current["pr"], "sha": sha})
-        current["sha"] = sha
-        lanes = list(state["lanes"])
-        lanes[state["lane_index"]] = current
-        return {"lanes": lanes}
+            ctx.event("pr_updated", "pr", {"lane": current["key"], "pr": pr, "sha": sha})
+        return {**current, "pr": pr, "sha": sha, "phase": None, "status": "awaiting_checks"}
 
 
-class CiFailed:
-    """Failed required checks go back to implement with their output, within the retry limit."""
-
-    def __init__(self, ctx: RunContext) -> None:
-        self.ctx = ctx
+class Join:
+    """Where the parallel branches meet: the next step runs only once every branch has returned."""
 
     def __call__(self, state: RunState) -> RunState:
-        problems = [
-            f"Required checks failed on PR #{lane(state)['pr']}:\n{state.get('ci_output', '')}"
+        return {}
+
+
+# The waits held after the join
+
+
+class LanesWait:
+    """Every Lane in flight is waiting on its PR: one interrupt lists them all."""
+
+    def __call__(self, state: RunState) -> RunState:
+        waits = [
+            {"lane": ln["key"], "pr": ln["pr"], "for": ln["status"].removeprefix("awaiting_")}
+            for ln in state["lanes"]
+            if ln["status"] in ("awaiting_checks", "awaiting_merge")
         ]
-        record_gate(self.ctx, "pr", "required checks pass", problems)
-        return gate_failed(self.ctx, "pr", "required checks", state, problems, lane(state)["key"])
+        interrupt({"kind": "lanes", "waits": waits})
+        return {}
 
 
-class LaneMerged:
+class LanePaused:
+    """Waits for the engineer about the paused Lanes: `resume` retries them all, and
+    `reject lane:<key>` rolls one back."""
+
     def __init__(self, ctx: RunContext) -> None:
         self.ctx = ctx
 
     def __call__(self, state: RunState) -> RunState:
-        current = lane(state)
-        record_gate(self.ctx, "pr", "required checks pass", [])
-        self.ctx.event("stage_passed", "pr", {"lane": current["key"], "pr": current["pr"]})
-        return _with_status(state, "merged")
+        paused = with_status(state, "paused")
+        first = paused[0]
+        value: dict[str, Any] = interrupt(
+            {
+                "kind": "paused",
+                "stage": first["paused_stage"],
+                "lane": first["key"],
+                "lanes": [ln["key"] for ln in paused],
+            }
+        )
+        if value.get("action") == "rollback":
+            target = next(ln for ln in paused if ln["key"] == value.get("lane", first["key"]))
+            rollback = {"reason": value["reason"], "by": value["by"]}
+            return {"lanes": [{**target, "status": "rolling_back", "rollback": rollback}]}
+        for ln in paused:
+            self.ctx.event("resumed", ln["paused_stage"], {"lane": ln["key"]}, actor="engineer")
+        return {
+            "lanes": [
+                {**ln, "status": "working", "attempts": 0, "paused_stage": None} for ln in paused
+            ]
+        }
 
 
-def _with_status(state: RunState, status: str) -> RunState:
-    """Mark the current Lane and move on to the next one."""
-    lanes = list(state["lanes"])
-    lanes[state["lane_index"]] = {**lanes[state["lane_index"]], "status": status}
-    return {"lanes": lanes, "lane_index": state["lane_index"] + 1}
+def dependency_lane(state: RunState) -> Lane:
+    return with_status(state, "dependency")[0]
+
+
+def manifests_hash(tree: Any, manifests: list[str]) -> str:
+    return content_hash("\n".join((tree / m).read_text() for m in manifests))
+
+
+def describe_dependency(state: RunState) -> tuple[str, str, str, str]:
+    current = dependency_lane(state)
+    change = current["dependency_change"]
+    listed = ", ".join(f"`{m}`" for m in change["manifests"])
+    return (
+        f"dependency:{current['key']}",
+        change["manifests"][0],
+        change["hash"],
+        f"\n\nLane {current['key']} changes dependency manifests: {listed}. "
+        "Dependency changes always get a human review.",
+    )
+
+
+def dependency_location(state: RunState) -> tuple[str, str, list[str]]:
+    current = dependency_lane(state)
+    return (
+        current["branch"],
+        f"{state['run']}-{current['issue']}",
+        current["dependency_change"]["manifests"],
+    )
+
+
+class DependencyDecided:
+    def __init__(self, ctx: RunContext) -> None:
+        self.ctx = ctx
+
+    def __call__(self, state: RunState) -> RunState:
+        decision, current = state["decision"], dependency_lane(state)
+        current = {**current, "status": "working", "dependency_change": None}
+        if not decision["approved"]:
+            feedback = f"{decision['checkpoint']} rejected: {decision['reason']}"
+            return {
+                "lanes": [{**current, "phase": "implement", "feedback": feedback, "attempts": 0}]
+            }
+        approved = dependency_lane(state)["dependency_change"]["hash"]
+        return {"lanes": [{**current, "phase": "verify", "dependency_approved": approved}]}
 
 
 class Rollback:
-    """Undo one Lane: close its PR, delete its branch and worktree, return its ticket to Ready."""
+    """Undo a Lane: close its PR, delete its branch and worktree, return its ticket to Ready."""
 
     def __init__(self, ctx: RunContext) -> None:
         self.ctx = ctx
 
     def __call__(self, state: RunState) -> RunState:
-        ctx, current = self.ctx, lane(state)
-        reason = state.get("rollback_reason") or "rolled back"
+        return {"lanes": [self.roll_back(ln) for ln in with_status(state, "rolling_back")]}
+
+    def roll_back(self, current: Lane) -> Lane:
+        ctx = self.ctx
+        reason, by = current["rollback"]["reason"], current["rollback"]["by"]
         pr = current["pr"]
         if pr is not None and ctx.github.pr(pr).state == "open":
             ctx.github.close_pr(pr)
@@ -442,30 +603,23 @@ class Rollback:
             f"{marker(ctx.run)}\nLane {current['key']} of Run {ctx.run} was rolled back: {reason}. "
             "This ticket is back in Ready (Todo).",
         )
+        data = {"lane": current["key"], "issue": current["issue"], "pr": pr, "reason": reason}
         ctx.event(
             "lane_rolled_back",
             "implement",
-            {
-                "lane": current["key"],
-                "issue": current["issue"],
-                "pr": pr,
-                "reason": reason,
-                "by": state.get("rollback_by"),
-            },
-            actor="engineer" if state.get("rollback_by") else "orchestrator",
+            {**data, "by": by},
+            actor="engineer" if by else "orchestrator",
         )
+        ctx.event("lane_finished", "implement", {"lane": current["key"], "outcome": "rolled_back"})
         ctx.mirror(
             f"↩️ Lane **{current['key']}** rolled back: {reason}. Lanes that merged are kept."
         )
-        return {
-            **_with_status(state, "rolled_back"),
-            "rollback_reason": None,
-            "action": None,
-            "paused": False,
-        }
+        return {**current, "status": "rolled_back", "rollback": None}
 
 
 class LanesDone:
+    """The join is complete: every Lane merged, was rolled back, or was skipped."""
+
     def __init__(self, ctx: RunContext) -> None:
         self.ctx = ctx
 
@@ -486,16 +640,6 @@ def docs_sha(state: RunState) -> str:
     return state["docs_sha"]
 
 
-def lane_pr(state: RunState) -> int:
-    pr = lane(state)["pr"]
-    assert pr is not None
-    return int(pr)
-
-
-def lane_sha(state: RunState) -> str:
-    return str(lane(state)["sha"])
-
-
 def after_docs_checks(state: RunState) -> Literal["recheck", "request_merge", "stop"]:
     if state["ci"] == "recheck":
         return "recheck"
@@ -506,51 +650,3 @@ def after_merge(state: RunState) -> Literal["recheck", "next", "closed"]:
     if state["merge"] == "recheck":
         return "recheck"
     return "next" if state["merge"] == "merged" else "closed"
-
-
-def after_lane_begin(state: RunState) -> Literal["implement", "next_lane", "lanes_done"]:
-    if not state.get("lane_skipped"):
-        return "implement"
-    return "next_lane" if state["lane_index"] < len(state["lanes"]) else "lanes_done"
-
-
-def after_implement(state: RunState) -> Literal["verify", "dependency", "implement", "stop"]:
-    if state.get("paused"):
-        return "stop"
-    if state.get("feedback"):
-        return "implement"
-    return "dependency" if state.get("dependency_change") else "verify"
-
-
-def after_dependency(state: RunState) -> Literal["verify", "implement"]:
-    return "verify" if state["decision"]["approved"] else "implement"
-
-
-def after_verify(state: RunState) -> Literal["document", "implement", "stop"]:
-    if state.get("paused"):
-        return "stop"
-    return "implement" if state.get("feedback") else "document"
-
-
-def after_document(state: RunState) -> Literal["open_pr", "document", "stop"]:
-    if state.get("paused"):
-        return "stop"
-    return "document" if state.get("feedback") else "open_pr"
-
-
-def after_lane_checks(state: RunState) -> Literal["recheck", "request_merge", "failed"]:
-    if state["ci"] == "recheck":
-        return "recheck"
-    return "request_merge" if state["ci"] == "passed" else "failed"
-
-
-def after_ci_failed(state: RunState) -> Literal["implement", "stop"]:
-    return "stop" if state.get("paused") else "implement"
-
-
-def after_lane(state: RunState) -> Literal["next_lane", "lanes_done"]:
-    return "next_lane" if state["lane_index"] < len(state["lanes"]) else "lanes_done"
-
-
-def lane_key(state: RunState) -> str:
-    return str(lane(state)["key"])

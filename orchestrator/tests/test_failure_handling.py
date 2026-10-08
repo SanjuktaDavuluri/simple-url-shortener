@@ -105,10 +105,8 @@ def test_a_lane_that_keeps_failing_pauses_and_can_be_rolled_back_keeping_the_oth
     probe: Path,
 ) -> None:
     two_tickets(orchestrate, github, agent, repo)
-    agent.script["implement"] = [
-        *(writes({"nothing.txt": "x"}) for _ in range(3)),
-        writes({"feature.txt": "t2"}),
-    ]
+    agent.script["implement:T1"] = [writes({"nothing.txt": "x"}) for _ in range(3)]
+    agent.script["implement:T2"] = [writes({"feature.txt": "t2"})]
     agent.script["document"] = [writes({}, docs_updated=[])]
 
     _, out = orchestrate("resume", "R-0001")

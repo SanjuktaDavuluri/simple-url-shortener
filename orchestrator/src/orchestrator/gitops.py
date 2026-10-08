@@ -2,15 +2,24 @@
 
 import re
 import subprocess
+import threading
 from pathlib import Path
 
 from orchestrator.policies import Change
 from orchestrator.workspace import Workspace
 
+# Parallel Lanes share one repository; concurrent fetches and worktree changes contend for its ref
+# locks, so git commands run one at a time (ADR 0020). Agent steps and Exit Gates stay parallel.
+_lock = threading.RLock()
+
+
+def _run(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    with _lock:
+        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=check)
+
 
 def _git(cwd: Path, *args: str) -> str:
-    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True)
-    return result.stdout
+    return _run(cwd, *args).stdout
 
 
 def run_branch(run: str) -> str:
@@ -46,20 +55,15 @@ def ensure_run_worktree(workspace: Workspace, run: str) -> Path:
 
 
 def exists_on_main(workspace: Workspace, path: str) -> bool:
-    result = subprocess.run(
-        ["git", "cat-file", "-e", f"origin/main:{path}"],
-        cwd=workspace.repo_root,
-        capture_output=True,
+    return (
+        _run(workspace.repo_root, "cat-file", "-e", f"origin/main:{path}", check=False).returncode
+        == 0
     )
-    return result.returncode == 0
 
 
 def files_on_main(workspace: Workspace, directory: str) -> list[str]:
-    listing = subprocess.run(
-        ["git", "ls-tree", "--name-only", "origin/main", f"{directory}/"],
-        cwd=workspace.repo_root,
-        capture_output=True,
-        text=True,
+    listing = _run(
+        workspace.repo_root, "ls-tree", "--name-only", "origin/main", f"{directory}/", check=False
     )
     return listing.stdout.split()
 
@@ -105,10 +109,8 @@ def remove_lane(workspace: Workspace, name: str, branch: str) -> None:
     path = workspace.worktrees / name
     if path.exists():
         _git(root, "worktree", "remove", "--force", str(path))
-    subprocess.run(["git", "branch", "-D", branch], cwd=root, capture_output=True)
-    subprocess.run(
-        ["git", "push", "--quiet", "origin", "--delete", branch], cwd=root, capture_output=True
-    )
+    _run(root, "branch", "-D", branch, check=False)
+    _run(root, "push", "--quiet", "origin", "--delete", branch, check=False)
 
 
 def commit_and_push(tree: Path, run: str, paths: list[str], message: str) -> None:

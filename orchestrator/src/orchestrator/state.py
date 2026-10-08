@@ -1,6 +1,15 @@
 """The Run's graph state, saved in LangGraph checkpoints (`.orchestrator/state.db`)."""
 
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
+
+
+def merge_lanes(
+    old: list[dict[str, Any]] | None, new: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Lanes update concurrently (ADR 0020): an update replaces only the Lanes it names, by key."""
+    updates = {ln["key"]: ln for ln in new}
+    merged = [updates.pop(ln["key"], ln) for ln in old or []]
+    return merged + list(updates.values())
 
 
 class RunState(TypedDict, total=False):
@@ -32,15 +41,9 @@ class RunState(TypedDict, total=False):
     # lanes
     docs_pr: int
     docs_sha: str
-    lanes: list[dict[str, Any]]
-    lane_index: int
+    lanes: Annotated[list[dict[str, Any]], merge_lanes]
+    current: str  # the Lane a parallel branch works on (only in its Send payload)
     ci: str
     ci_output: str
     merge: str
     close_out_pr: int
-    dependency_change: dict[str, Any] | None
-    dependencies_approved: dict[str, str]
-    action: str | None
-    rollback_reason: str | None
-    rollback_by: str | None
-    lane_skipped: bool

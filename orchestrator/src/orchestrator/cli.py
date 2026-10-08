@@ -248,8 +248,10 @@ def _resume(deps: Deps, workspace: Workspace, args: argparse.Namespace) -> int:
         reply = next((c for c in comments[after:] if marker(run) not in c.body), None)
         if reply:
             graph.resume(ctx, {"body": reply.body, "by": reply.author})
-    elif waiting["kind"] in ("checks", "merge"):
-        graph.resume(ctx, {})  # the waiting node re-reads the PR from GitHub
+    elif waiting["kind"] in ("checks", "merge", "lanes"):
+        # the waiting node re-reads the PRs from GitHub. Not `{}`: LangGraph reads an empty dict
+        # as a map of interrupt ids, which resumes nothing.
+        graph.resume(ctx, {"recheck": True})
     elif waiting["kind"] == "approval":
         label = f"approved:{waiting['checkpoint']}"
         approval = next(
@@ -324,12 +326,18 @@ def _decide(deps: Deps, workspace: Workspace, args: argparse.Namespace) -> int:
             args.command != "reject"
             or not waiting
             or waiting["kind"] != "paused"
-            or waiting.get("lane") != key
+            or key not in waiting.get("lanes", [waiting.get("lane")])
         ):
             print(f"{args.run} is not paused in Lane {key}", file=sys.stderr)
             return REFUSED
         graph.resume(
-            ctx, {"action": "rollback", "by": ctx.github.current_user(), "reason": args.reason}
+            ctx,
+            {
+                "action": "rollback",
+                "lane": key,
+                "by": ctx.github.current_user(),
+                "reason": args.reason,
+            },
         )
         _print_run(workspace, args.run)
         return 0

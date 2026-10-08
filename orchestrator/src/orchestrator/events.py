@@ -5,6 +5,7 @@ Append-only JSON lines. Each event carries its own hash and the hash of the even
 
 import hashlib
 import json
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +15,9 @@ SCHEMA_VERSION = 1
 GENESIS = "0" * 64
 
 Event = dict[str, Any]
+
+# Parallel Lanes append from several threads; one writer at a time keeps the hash chain intact.
+_lock = threading.RLock()
 
 
 def _event_hash(event: Event) -> str:
@@ -27,9 +31,11 @@ class EventLog:
         self.path = path
 
     def read(self) -> list[Event]:
-        if not self.path.exists():
-            return []
-        return [json.loads(line) for line in self.path.read_text().splitlines() if line.strip()]
+        with _lock:
+            if not self.path.exists():
+                return []
+            text = self.path.read_text()
+        return [json.loads(line) for line in text.splitlines() if line.strip()]
 
     def append(
         self,
@@ -39,6 +45,12 @@ class EventLog:
         type: str,
         stage: str | None = None,
         data: Event | None = None,
+    ) -> Event:
+        with _lock:
+            return self._append(run, actor, type, stage, data)
+
+    def _append(
+        self, run: str, actor: str, type: str, stage: str | None, data: Event | None
     ) -> Event:
         existing = self.read()
         event: Event = {
