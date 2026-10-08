@@ -15,7 +15,7 @@ The work is split into three Releases. Each Release is a lifecycle phase, and ea
 |---|---|---|---|
 | 1 | Greenfield | A JSON API (create, Redirect), URL Rules, Collision handling and a web page | A small, well-tested core comes first. Every later change is a brownfield change to it |
 | 2 | Brownfield, orchestrated | The delivery orchestrator (R18) first. Then every feature through it: Clickstream (R10) → analytics (R2), with operability (R12 → R11 → R21) in parallel | Building the orchestrator first means the rest of the Release is delivered *by* it, which makes it the strongest test of the orchestrator |
-| 3 | Reliability | Security hardening, load tests (R13), failure tests (R14), a requirement-clarification case study (R23), the scaling ADR (R25) | You measure before you test failure. Write-ups come last, from the real history |
+| 3 | Reliability | Security hardening (#86–#88), a risk register (#89), load tests (#90), failure tests (#91), a requirement-clarification case study (#83, started early), write-ups (#92); the scaling path is already decided (ADR 0019) | You measure before you test failure. Write-ups come last, from the real history |
 
 **Principles:**
 - **Agents execute and humans decide.** Agents can't merge, push to `main`, edit policy or skip a gate.
@@ -130,9 +130,25 @@ The roadmap first said only "analytics". That one word hid several open question
 
 Because these answers were already recorded, R-0001's requirements Stage found nothing left to ask. It wrote the spec straight away, in 7 minutes, and a human approved it.
 
-The orchestrator also handles an ambiguous Issue directly: its requirements Stage posts clarifying questions on the Issue, one at a time with a recommended answer, and waits for replies (spec 0002, story 8).
+#### Live: a one-line request through the orchestrator (Run R-0002, #83)
 
-The full worked case study, from a deliberately one-line "expiring links" request (R3) to an orchestrated build, is planned as **R23**.
+To show the orchestrator resolving ambiguity itself, the R23 case study was started early. Issue [#83](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/83) says only "Links should be able to expire". The requirements Stage found what was missing and asked about it on the Issue: one question at a time, each with a recommended answer and the alternatives it rejected, grounded in the existing ADRs and specs.
+
+| # | Question | Options it weighed | Answer (the maintainer, on #83) |
+|---|---|---|---|
+| Q1 | What makes a Link expire? | (a) an optional lifetime chosen per Link at creation; (b) one service-wide lifetime; (c) a Click limit; (d) inactivity | (a), 1–365 days, stored as a fixed UTC time. Click-based expiry was rejected because the Click Recorder may drop Clicks under load (ADR 0012), so a count can't be enforced exactly |
+| Q2 | What does an expired Short URL answer? | (a) `410 Gone`; (b) `404` like an unknown code; (c) a `302` to an "expired" page | (a). ADR 0014's reason for `404` (not confirming which codes exist) doesn't apply to someone who was given the link. (c) would count as a Click and hide the failure from monitoring |
+| Q3 | Is an expired Link kept, and can its Short Code be reused? | (a) keep it, retire the code, keep its Clicks; (b) delete it and reuse the code; (c) delete it and its Clicks, keep a list of retired codes | (a). Reuse would silently send old Short URLs somewhere else, a phishing path, for no gain in a 62^7 code space |
+
+The Stage then wrote [spec 0004](https://github.com/SanjuktaDavuluri/simple-url-shortener/blob/docs/run-R-0002/docs/specs/0004-expiring-links.md), with 26 user stories, on the Run's own branch:
+- an optional `expires_in_days` stored as one nullable `expires_at` column
+- `410 Gone` with `no-store` for expired Links, and no Click recorded
+- unchanged behaviour for every existing Link and client
+
+The three questions cost $1.64 in total.
+
+**State:** R-0002 is paused at its `spec` approval checkpoint, as designed: no design, tickets or code exist until a human approves. Its Event Log is committed at close-out, like R-0001's. The rest of the Run (design → tickets → Lanes → close-out) continues in Release 3 ([#83](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/83)).
+
 
 ## 4. Testing approach
 
@@ -157,7 +173,7 @@ The full worked case study, from a deliberately one-line "expiring links" reques
 | Clicks slow down the Redirect | An asynchronous bounded queue, WAL, and a contention test |
 | Clicks are lost | A bounded queue, with dropped Clicks counted and logged (counts only), and a flush on shutdown |
 | Personal data | Minimal Click data, and no raw headers logged |
-| Abuse of the shortener | Rate limiting per client IP ([0016](adr/0016-in-app-rate-limiting-per-client-ip.md)), a strict CSP ([0017](adr/0017-strict-content-security-policy-and-security-headers.md)), private addresses blocked |
+| Abuse of the shortener | *Designed, built in Release 3:* rate limiting per client IP ([0016](adr/0016-in-app-rate-limiting-per-client-ip.md), #87), a strict CSP ([0017](adr/0017-strict-content-security-policy-and-security-headers.md), #88) and blocking private addresses ([0018](adr/0018-private-address-rule-without-dns.md), #86). Today, URL Rules allow only `http`/`https` URLs and refuse links back to the shortener itself |
 
 ## 6. Assumptions
 
@@ -180,6 +196,7 @@ The full worked case study, from a deliberately one-line "expiring links" reques
 - Click data isn't readable yet: R2 adds the stats API.
 - There are no health endpoints, structured logs or container yet: R12, R11 and R21.
 - There are no load or failure-test results yet: R13 and R14 in Release 3.
+- Rate limiting, security headers and the private-address rule are designed, not built: #86–#88 in Release 3.
 
 **Evidence:**
 - One live orchestrated Run (R-0001) so far, so the metrics describe a single Run. R-0001 had no rollback and no re-plan. Those paths are shown by the scripted demo Run (`scripts/orchestrator-demo.sh`, saved in [`delivery/demo/`](../delivery/demo/timeline.txt)), which runs the real graph, gates and Event Log with a scripted agent.
