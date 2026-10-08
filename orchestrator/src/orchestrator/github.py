@@ -76,6 +76,15 @@ class GitHub(Protocol):
     def close_pr(self, number: int) -> None: ...
 
 
+def _subject(commit: dict[str, str]) -> str:
+    """A commit's full subject. GitHub cuts a long one to a headline ending in "…" and starts the
+    body with "…" and the rest of it (#69)."""
+    headline, body = commit["messageHeadline"], commit.get("messageBody") or ""
+    if headline.endswith("…") and body.startswith("…"):
+        return headline[:-1] + body[1:].split("\n", 1)[0]
+    return headline
+
+
 class GhCliGitHub:
     """Uses the engineer's existing `gh` login; nothing is stored."""
 
@@ -239,7 +248,7 @@ class GhCliGitHub:
             body=data["body"] or "",
             state=state,
             merged_by=(data.get("mergedBy") or {}).get("login"),
-            commits=tuple(c["messageHeadline"] for c in data["commits"]),
+            commits=tuple(_subject(c) for c in data["commits"]),
         )
 
     def pr_checks(self, number: int, sha: str) -> list[Check]:
