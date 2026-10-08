@@ -89,6 +89,7 @@ flowchart LR
     schedule -- "every Lane merged,<br/>rolled back or skipped" --> done["lanes_done → release readiness"]
 ```
 
+- **The delivery board follows each Lane:** its ticket moves to In Progress when the Lane starts, In Review when its PR opens, Done when the PR merges, and back to Todo on rollback. Release and Kind are left as they are.
 - **A Lane starts** when every ticket blocking it has merged, so it branches from a `main` that already has their work. At most `max_parallel_lanes` Lanes are in flight, from `lane_started` until merged or rolled back (`lane_finished`); a freed slot goes to the next ready Lane at the next join.
 - **Agent work runs concurrently**, one branch per Lane, each up to its next wait. Branches never wait for a human; `status` shows every PR waiting on checks or a merge at once.
 - **Shared state stays consistent:** Lanes are merged into the Run's state by key, and Event Log appends and git commands run one at a time.

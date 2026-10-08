@@ -390,6 +390,7 @@ class Schedule:
             record_gate(ctx, "pr", "required checks pass", [], current["key"])
             ctx.event("stage_passed", "pr", {"lane": current["key"], "pr": pr})
             ctx.event("lane_finished", "pr", {"lane": current["key"], "outcome": "merged"})
+            ctx.github.add_to_board(current["issue"], {"Status": "Done"})
             return {**current, "status": "merged"}
         if outcome == "closed":
             reason = f"PR #{pr} was closed without merging"
@@ -448,6 +449,7 @@ class Schedule:
             ctx.event("lane_started", "implement", data)
             ctx.event("stage_started", "implement", data)
             ctx.mirror(f"Lane **{key}** started: #{current['issue']} {current['title']}.")
+            ctx.github.add_to_board(current["issue"], {"Status": "In Progress"})
             lanes[key] = {**current, "status": "working", "phase": "implement", "attempts": 0}
             in_flight += 1
 
@@ -628,6 +630,7 @@ class LaneWork:
                 + "\n".join(f"- [x] {a}" for a in current["acceptance"]),
             )
             ctx.event("pr_opened", "pr", {"lane": current["key"], "pr": pr, "sha": sha})
+            ctx.github.add_to_board(current["issue"], {"Status": "In Review"})
             ctx.mirror(f"Lane **{current['key']}**: PR #{pr} opened; waiting for its checks.")
         else:
             ctx.event("pr_updated", "pr", {"lane": current["key"], "pr": pr, "sha": sha})
