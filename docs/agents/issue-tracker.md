@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-**Tickets** for this repo live as GitHub issues in the private repo. Use the `gh` CLI for all operations.
+**Tickets** for this repo live as GitHub issues in this repository. Use the `gh` CLI for all operations.
 
 **Specs do not.** A spec is committed at `docs/specs/NNNN-<slug>.md` (next number), with `status` frontmatter, and indexed in `docs/specs/README.md`. Every ticket links to its spec at the top of its body (`Spec: docs/specs/NNNN-<slug>.md`), and the spec's status is updated as its tickets progress.
 

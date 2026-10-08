@@ -1,82 +1,66 @@
 # Simple URL Shortener: Project Charter
 
-Read this before doing any work in this repo. It is the core brief and overrides default skill behaviour.
+Read this before doing any work in this repo. It is the core brief and overrides default skill behaviour. The README is the map of every document; `docs/onboarding.md` has setup, the code tour and the repository's setup history.
 
 ## Goal
 
-An **external third party will evaluate** this project. They will judge whether it was built in line with **SDLC standards**, and whether its history shows the full lifecycle:
+An **external third party will evaluate** this project against **SDLC standards**. The history must show the full lifecycle: **greenfield** (idea to tested v1), **brownfield** (changes traced to tickets and decisions), and **reliability** (observability, error handling, performance, incident and bug-fix discipline). Every piece of work leaves evidence a reviewer can follow: why it was decided, which ticket drove it, how it was tested.
 
-1. **Greenfield**: from idea to first working version (requirements, design decisions, initial implementation, tests).
-2. **Brownfield**: changing the existing system (new features, refactors, migrations), tracing each change to a ticket or decision.
-3. **Reliability**: running it like a production system (observability, error handling, performance, incident and bug-fix discipline).
+## Two planes
 
-Every piece of work should leave evidence a reviewer can follow: why something was decided, which ticket drove a change, and how it was tested.
-
-## Two planes (read first)
-
-This repo holds the **product** (the Java URL shortener service: `java -jar`, `scripts/local.sh`, container) and, from Release 2, the **delivery orchestrator** (`orchestrator/`, Python, run on demand with `orchestrate`). The orchestrator is development-time tooling. It ends at a PR that is ready to merge and **never deploys or connects to a running service**. Its validation stages start their own temporary instances on another port and data directory, never the maintainer's service on :8000. See ADR 0007 and the diagram in `docs/architecture.md`.
+The **product** is the Java URL shortener service (`java -jar`, `scripts/local.sh`, container). The **delivery orchestrator** (`orchestrator/`, Python, run on demand with `orchestrate`) is development-time tooling. It ends at a PR that is ready to merge, **never deploys and never connects to a running service**, and validates with temporary instances on their own port and data directory (ADR 0007, `docs/architecture.md`).
 
 ## How we work
 
-- **Interview one question at a time.** When grilling or clarifying, ask a single question, give a recommended answer, and wait. Don't batch questions, even if a skill says to ask a whole round.
-- **ADRs need explicit user approval.** Record only significant architectural decisions: hard to reverse, surprising without context, and the result of a real trade-off. When a decision qualifies, propose it as an ADR candidate and ask "Record this as an ADR?" Write it only on a yes. Never record trivial choices.
-- **Every ADR records the trade-off, not just the decision.** List each option that was on the table, what it would gain and cost, and why the chosen one beat each alternative ("A over B because…"). A reviewer must be able to see what we chose over what.
-- **Matt Pocock skills drive the workflow** (`mattpocock-skills:*`, e.g. grilling, domain-modeling, to-spec, to-tickets, tdd, code-review, diagnosing-bugs). The rules above take precedence over those skills' defaults.
-- **The maintainer's local service.** `scripts/local.sh start` runs the app in the background on port 8000, with data in `.local/`. The maintainer may be testing against it, so **never stop, restart or reset it** without asking. For your own runs use another port and data dir, e.g. `PORT=8765 DATA_DIR=<scratch dir> scripts/local.sh start`.
-- **Keep the delivery board current.** Every ticket lives on the GitHub Project [Simple URL Shortener: Delivery](https://github.com/users/SanjuktaDavuluri/projects/1) (fields: Status, Release, Kind) and in its release's milestone. Move it with `scripts/board-status.sh <issue> "<status>"`: **In Progress** when its branch starts, **In Review** when its PR opens. Then move it to **Done** after its PR merges and the issue closes. The board's built-in "closed → Done" automation isn't enabled, so this step is manual. New issues: add them to the board (`gh project item-add 1 --owner SanjuktaDavuluri --url <issue-url>`), set Release and Kind, and set the milestone.
-- **Close out every Release.** Work is planned in numbered **Releases** (Release 1, 2, 3, then *later*). When a Release's milestone closes, on a `docs/release-N-close-out` branch:
-  - update every document the Release touched: the README (status, reviewer's guide, available vs planned), `docs/roadmap.md` (item statuses and links), the specs index and spec statuses, `docs/architecture.md`, `docs/onboarding.md`, `CONTEXT.md`, and this charter's Status section
-  - tag `vN.0.0` on the commit that completes the Release, add a `CHANGELOG.md` entry, and write release notes in `docs/releases/vN.0.0.md`, linked from the README: what shipped (with spec, issue, PR and ADR links), what was deferred and why, metrics and evidence, lessons learned, and what's next. Push only that tag (`git push origin vN.0.0`), never all tags
-- **Confirm SDLC artifacts before using them.** Before introducing a new kind of artifact (ADRs, tickets, specs, changelog, CI and so on), say which one and why, and get approval.
-- **Commits:** conventional commits. **All work goes on a feature branch** (`feat/…`, `fix/…`, `docs/…`, `chore/…`, `test/…`, `refactor/…`) and reaches `main` only through a PR, with one branch + PR per ticket. Never commit straight to `main`.
-- **`main` protection (2026-10-07):** **GitHub branch protection** is on: the CI checks **"Verify (format, compile, analysis, unit + integration tests)"**, **"Browser checks (Playwright + Lighthouse)"** and **"Orchestrator (lint, types, tests)"** (added 2026-10-07, #26) must all pass (renaming either CI job breaks its required check, so update the protection in the same PR), a PR is required (0 approvals, since this is a solo project and you can't approve your own PR), conversations must be resolved, admins are included, and force-pushes and deletion are blocked. A versioned `pre-push` hook in `.githooks/` is a **local backup** that refuses pushes to `main` before they reach GitHub; enable it once per clone with `git config core.hooksPath .githooks`. History: protection returned 403 while the repo was private on a free plan; the repo was made public (and rebuilt with a no-reply commit email first) so that protection could be enforced by GitHub. The first commit is the design docs, made before any code.
+- **One question at a time.** When grilling or clarifying, ask a single question with a recommended answer, then wait. Never a numbered round, even if a skill says so.
+- **ADRs need explicit approval.** Only for decisions that are hard to reverse, surprising without context, and a real trade-off. Propose the candidate, ask "Record this as an ADR?", and write it only on a yes.
+- **Every ADR records the trade-off:** each option on the table, what it gains and costs, and why the chosen one beat each alternative.
+- **Matt Pocock skills drive the workflow** (`mattpocock-skills:*`: grilling, domain-modeling, to-spec, to-tickets, tdd, code-review, diagnosing-bugs). The rules here take precedence over their defaults.
+- **Confirm a new kind of SDLC artifact before introducing it:** say which one and why, and get approval.
+- **Branches and PRs only.** Conventional commits. One branch (`feat/`, `fix/`, `docs/`, `chore/`, `test/`, `refactor/` + `<issue>-<slug>`) and one PR per ticket, with `Closes #n`. Never commit to `main`; the maintainer merges.
+- **`main` is protected.** Required checks: **"Verify (format, compile, analysis, unit + integration tests)"**, **"Browser checks (Playwright + Lighthouse)"** and **"Orchestrator (lint, types, tests)"**. Renaming a CI job breaks its required check, so update the protection in the same PR. Details are in `docs/onboarding.md`.
+- **The maintainer's local service** (`scripts/local.sh start`, port 8000, data in `.local/`) may be in use. **Never stop, restart or reset it** without asking. For your own runs: `PORT=8765 DATA_DIR=<scratch dir> scripts/local.sh start`.
+- **Keep the delivery board current** ([Project 1](https://github.com/users/SanjuktaDavuluri/projects/1); fields Status, Release, Kind). Use `scripts/board-status.sh <issue> "<status>"`: **In Progress** when the branch starts, **In Review** when the PR opens, **Done** after the merge (the board doesn't do this automatically). New issues: `gh project item-add 1 --owner SanjuktaDavuluri --url <issue-url>`, then set Release, Kind and the Release milestone.
+- **Close out every Release.** Work is planned in numbered Releases (1, 2, 3, then *later*). When a Release's milestone closes, on a `docs/release-N-close-out` branch:
+  - update every document it touched: the README, `docs/roadmap.md`, the spec index and statuses, `docs/architecture.md`, `docs/onboarding.md`, `CONTEXT.md`, and the Status below
+  - tag `vN.0.0` on the completing commit and push only that tag (`git push origin vN.0.0`)
+  - add a `CHANGELOG.md` entry and write release notes in `docs/releases/vN.0.0.md`: what shipped (with links), what was deferred and why, evidence, lessons learned, and what's next
 
 ## Approved SDLC artifacts
 
-Approved 2026-10-07. Introduce each one **only when its phase arrives**, so the history shows it being adopted at that point:
+Introduce each one **only when its phase arrives**, so the history shows it being adopted.
 
-| Phase | Artifact | Location / form |
+| Phase | Artifact | Where |
 |---|---|---|
-| All | Specs (numbered, with status lifecycle) | `docs/specs/NNNN-<slug>.md`, indexed in `docs/specs/README.md` (decided 2026-10-07) |
-| Greenfield | ADRs (user-approved, significant only) | `docs/adr/NNNN-*.md` |
+| All | Specs (numbered, status lifecycle) | `docs/specs/`, indexed in its README |
+| Greenfield | ADRs (approved, significant only) | `docs/adr/` |
 | Greenfield | Domain glossary | `CONTEXT.md` |
-| All | Roadmap / deferral log: every postponed item is logged, then turned into a spec (`/to-spec`) and tickets (`/to-tickets`) when picked up | `docs/roadmap.md` |
+| All | Roadmap and deferral log; items become specs (`/to-spec`) and tickets (`/to-tickets`) when picked up | `docs/roadmap.md` |
 | All | Architecture diagrams (Mermaid) | `docs/architecture.md` |
-| All | Onboarding guide for new engineers and reviewers; README is the reviewer's map | `docs/onboarding.md`, `README.md` (added 2026-10-07) |
-| All | Plans (numbered, with status; tracked by a GitHub issue labelled `plan`) | `docs/plans/NNNN-<slug>.md`, indexed in `docs/plans/README.md` (added 2026-10-07) |
-| All | Tickets | GitHub Issues in the private repo, each linking to its spec (decided 2026-10-07) |
-| All | Git history: branch + PR per ticket, conventional commits | Private GitHub repo, created when prototyping ends |
-| All | TDD tests, CI (lint + tests) | GitHub Actions |
-| All | CHANGELOG, a version tag and release notes for every Release | `CHANGELOG.md`, tag `vN.0.0`, `docs/releases/vN.0.0.md` (introduced 2026-10-07 with v1.0.0) |
-| Reliability | Runbook, incident/bug write-ups, observability (logs, health check, metrics) | `docs/runbook.md`, `docs/incidents/` |
-
-Hosting: **private GitHub repo** [SanjuktaDavuluri/simple-url-shortener](https://github.com/SanjuktaDavuluri/simple-url-shortener) with Issues and PRs. Created 2026-10-07, before Release 1 implementation, so tickets exist before their code. This replaced the earlier plan to stay local until Release 1 ended. One branch + PR per ticket; the PR body says `Closes #n`.
+| All | Onboarding guide; the README is the reviewer's map | `docs/onboarding.md`, `README.md` |
+| All | Plans (numbered, tracked by an issue labelled `plan`) | `docs/plans/` |
+| All | Tickets, each linking its spec | GitHub Issues |
+| All | Branch + PR per ticket, conventional commits | GitHub |
+| All | TDD tests, CI | GitHub Actions |
+| All | CHANGELOG, version tag and release notes per Release | `CHANGELOG.md`, `vN.0.0`, `docs/releases/` |
+| Reliability | Runbook, incident and bug write-ups, observability | `docs/runbook.md`, `docs/incidents/` |
 
 ## Status
 
-- Phase: **Release 1 (greenfield) complete** with #8 and tagged **`v1.0.0`**: spec 0001 implemented ([release notes](docs/releases/v1.0.0.md)). **Releases 2 and 3 are designed** (ADRs 0007–0019, roadmap re-prioritised 2026-10-07). **Release 2 starts only when the user says so**, in roadmap order R18 → ( R10 → R2 ∥ R12 → R11 → R21 ): `/to-spec` for each spec, `/to-tickets` for issues, with a `Release 2` milestone and board entries. CI has three jobs, all required: **Verify** (`./mvnw verify`), **Browser checks** (`e2e/`: Playwright + Lighthouse ≥ 90) and **Orchestrator** (`orchestrator/`: ruff, mypy strict, pytest; runs on every PR). Orchestrator: Python 3.13 + uv, LangGraph, tests through the `orchestrate` command with a scripted agent and an in-memory GitHub; see `orchestrator/README.md`.
-- v1 scope (decided 2026-10-07): **core only**, i.e. shorten a long URL to a short code and redirect from it, via a JSON API plus a minimal web page. Planned brownfield features: custom aliases, click counts, expiring links. Accounts are out of scope.
-- Stack: **Java 25 (LTS) + Spring Boot 4.1.1**, built with the **Maven Wrapper** (`./mvnw`). See ADR 0001.
-- Data: SQLite through Spring `JdbcClient` (plain SQL, no ORM); schema by **Flyway** migrations. See ADR 0002.
-- Tests & quality: JUnit 5 + AssertJ; unit tests `*Test` (Surefire), integration tests `*IT` (Failsafe) through `@SpringBootTest` + `MockMvcTester` extending `IntegrationTest` (shared context reset before every test: Flyway clean + migrate, empty Short Code script; shared request helpers; extra instances via `TestApps`; databases under `target/`) and a scripted `ShortCodeGenerator` bean; Spotless (google-java-format) + Error Prone. `./mvnw verify` is the single local and CI entry point. Integration testing follows `docs/plans/0001-integration-testing.md`: update its matrix in each ticket's PR.
-- Java packages: base `io.github.sanjuktadavuluri.shortener`; Rules live in its `rules` sub-package.
-- Storage: **SQLite**, kept behind one storage interface so a later move to PostgreSQL is a contained change. See ADR 0002.
-- Short codes: **random 7-char base62, retry on collision**. See ADR 0003. Specified in `docs/specs/0001-v1-core.md`.
-- URL validation v1 (decided 2026-10-07): http/https with a host, at most 2048 chars, and links back to our own domain are refused. Rules live as a **separate rule entity**, not inline in the pipeline. See ADR 0004 (separate `rules` package).
-- Duplicate long URLs: **a new link every time**. This follows from ADR 0003. Flows are in `docs/architecture.md`.
-- Redirects: **302 Found**, so every click passes through us (audit and clickstream foundation). See ADR 0005.
-- Web page: **server-rendered (Spring MVC + Thymeleaf)**, because this is a backend-focused project. It calls the same create-link logic as the API, with no duplicate path. Quality bar: it must look and feel **current state of the art**, not a bare form. HTMX progressive enhancement plus 6 acceptance criteria (Lighthouse ≥ 90). See ADR 0006.
-- Public address: the `BASE_URL` setting (default `http://localhost:8000`) builds short links and drives the "no links to ourselves" rule.
+- **Release 1 complete** (`v1.0.0`, spec 0001). **Release 2 in progress** (milestone 2): spec 0002, the delivery orchestrator (R18). Tickets #26–#29, #31 and #32 are merged; **#30, #33, #34 and #35 remain**. Then the rest of Release 2, in roadmap order: R10 → R2 ∥ R12 → R11 → R21. Release 3 is designed (ADRs 0016–0019; approaches in `docs/roadmap.md`).
+- **Service:** Java 25 + Spring Boot 4.1.1, Maven Wrapper; SQLite via `JdbcClient` with Flyway (ADRs 0001–0006). Base package `io.github.sanjuktadavuluri.shortener` (URL Rules in `rules`). `BASE_URL` builds Short URLs and drives the no-self-link Rule.
+- **Service tests:** `./mvnw verify` is the single entry point (Spotless, Error Prone, JUnit 5 + AssertJ). `*Test` are unit tests and `*IT` are integration tests extending `IntegrationTest`: a shared context, the database reset before each test, a scripted `ShortCodeGenerator`, and extra instances via `TestApps`. Update the matrix in `docs/plans/0001-integration-testing.md` in each ticket's PR. Browser checks and Lighthouse live in `e2e/` (median of 3 runs, ≥ 90).
+- **Orchestrator:** Python 3.13 + uv, LangGraph, Claude Agent SDK (from #35). Tests drive the `orchestrate` command with a scripted agent and an in-memory GitHub, plus the policy check. Run `ruff`, `mypy --strict` and `pytest`. See `orchestrator/README.md`.
 
 ## Agent skills
 
 ### Issue tracker
 
-Specs: committed in `docs/specs/`. Tickets: GitHub Issues in the private repo. See `docs/agents/issue-tracker.md`.
+Specs are committed in `docs/specs/`; tickets are GitHub Issues. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Default five roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), recorded as a `Status:` line while local. See `docs/agents/triage-labels.md`.
+The default five roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
