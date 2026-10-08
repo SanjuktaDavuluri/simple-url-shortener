@@ -12,7 +12,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from orchestrator import decompose, design, lanes, requirements
-from orchestrator.approvals import AwaitApproval, Paused, RequestApproval, after_paused
+from orchestrator.approvals import AwaitApproval, Paused, RequestApproval
 from orchestrator.closeout import CloseOut, ReleaseReadiness
 from orchestrator.context import RunContext, RunPaused, RunStopped
 from orchestrator.stages import STAGES, Intake
@@ -158,31 +158,25 @@ def build(ctx: RunContext, checkpointer: SqliteSaver) -> Graph:
     )
     g.add_edge("decompose_publish", "lanes")
 
-    # lanes: the Run's documents reach main first, then each ticket in dependency order
+    # lanes: the Run's documents reach main first; then the Lanes fan out along their blocking
+    # edges, up to max_parallel_lanes at once, and join before release readiness (ADR 0020)
     node("lanes", lanes.Begin(ctx))
     node("docs_checks", lanes.AwaitChecks(ctx, lanes.docs_pr, lanes.docs_sha))
     node("docs_checks_failed", lanes.DocsChecksFailed(ctx))
     node("docs_paused", Paused(ctx, lanes.STAGE))
     node("docs_request_merge", lanes.RequestMerge(ctx, lanes.docs_pr))
     node("docs_await_merge", lanes.AwaitMerge(ctx, lanes.docs_pr))
-    node("lane_begin", lanes.LaneBegin(ctx))
-    node("implement", lanes.Implement(ctx))
+    node("lanes_schedule", lanes.Schedule(ctx))
+    g.add_node("lane_work", lanes.LaneWork(ctx))  # checks the boundary between its own steps
+    node("lanes_join", lanes.Join())
+    node("lanes_wait", lanes.LanesWait())
+    node("lane_paused", lanes.LanePaused(ctx))
     node(
         "dependency_request_approval",
         RequestApproval(ctx, "implement", lanes.describe_dependency, lanes.dependency_location),
     )
     node("dependency_await_approval", AwaitApproval(ctx, "implement"))
     node("dependency_decided", lanes.DependencyDecided(ctx))
-    node("verify", lanes.Verify(ctx))
-    node("lane_paused", Paused(ctx, "implement", lanes.lane_key))
-    node("document", lanes.Document(ctx))
-    node("document_paused", Paused(ctx, "document", lanes.lane_key))
-    node("open_pr", lanes.OpenPr(ctx))
-    node("lane_checks", lanes.AwaitChecks(ctx, lanes.lane_pr, lanes.lane_sha))
-    node("ci_failed", lanes.CiFailed(ctx))
-    node("lane_request_merge", lanes.RequestMerge(ctx, lanes.lane_pr))
-    node("lane_await_merge", lanes.AwaitMerge(ctx, lanes.lane_pr))
-    node("lane_merged", lanes.LaneMerged(ctx))
     node("rollback", lanes.Rollback(ctx))
     node("lanes_done", lanes.LanesDone(ctx))
     g.add_edge("lanes", "docs_checks")
@@ -201,57 +195,25 @@ def build(ctx: RunContext, checkpointer: SqliteSaver) -> Graph:
     edges(
         "docs_await_merge",
         lanes.after_merge,
-        {"recheck": "docs_await_merge", "next": "lane_begin", "closed": "docs_checks_failed"},
+        {"recheck": "docs_await_merge", "next": "lanes_schedule", "closed": "docs_checks_failed"},
     )
-    edges(
-        "lane_begin",
-        lanes.after_lane_begin,
-        {"implement": "implement", "next_lane": "lane_begin", "lanes_done": "lanes_done"},
+    g.add_conditional_edges(
+        "lanes_schedule",
+        lanes.after_schedule,
+        [
+            "lane_work",
+            "rollback",
+            "lane_paused",
+            "dependency_request_approval",
+            "lanes_wait",
+            "lanes_done",
+        ],
     )
-    edges(
-        "implement",
-        lanes.after_implement,
-        {
-            "verify": "verify",
-            "dependency": "dependency_request_approval",
-            "implement": "implement",
-            "stop": "lane_paused",
-        },
-    )
+    g.add_edge("lane_work", "lanes_join")
+    for waited in ("lanes_join", "lanes_wait", "lane_paused", "dependency_decided", "rollback"):
+        g.add_edge(waited, "lanes_schedule")
     g.add_edge("dependency_request_approval", "dependency_await_approval")
     g.add_edge("dependency_await_approval", "dependency_decided")
-    edges(
-        "dependency_decided",
-        lanes.after_dependency,
-        {"verify": "verify", "implement": "implement"},
-    )
-    edges(
-        "verify",
-        lanes.after_verify,
-        {"document": "document", "implement": "implement", "stop": "lane_paused"},
-    )
-    edges("lane_paused", after_paused, {"retry": "implement", "rollback": "rollback"})
-    edges(
-        "document",
-        lanes.after_document,
-        {"open_pr": "open_pr", "document": "document", "stop": "document_paused"},
-    )
-    edges("document_paused", after_paused, {"retry": "document", "rollback": "rollback"})
-    g.add_edge("open_pr", "lane_checks")
-    edges(
-        "lane_checks",
-        lanes.after_lane_checks,
-        {"recheck": "lane_checks", "request_merge": "lane_request_merge", "failed": "ci_failed"},
-    )
-    edges("ci_failed", lanes.after_ci_failed, {"implement": "implement", "stop": "lane_paused"})
-    g.add_edge("lane_request_merge", "lane_await_merge")
-    edges(
-        "lane_await_merge",
-        lanes.after_merge,
-        {"recheck": "lane_await_merge", "next": "lane_merged", "closed": "rollback"},
-    )
-    edges("lane_merged", lanes.after_lane, {"next_lane": "lane_begin", "lanes_done": "lanes_done"})
-    edges("rollback", lanes.after_lane, {"next_lane": "lane_begin", "lanes_done": "lanes_done"})
     g.add_edge("lanes_done", "release_readiness")
 
     # release readiness and close-out

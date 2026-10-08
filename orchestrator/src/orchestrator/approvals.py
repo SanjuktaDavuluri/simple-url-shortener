@@ -112,28 +112,16 @@ def gate_failed(
 
 
 class Paused:
-    """Waits for the engineer after a Stage failed for good: retry it, or roll back its Lane."""
+    """Waits for the engineer after a Stage failed for good; `resume` retries it. Paused Lanes
+    wait in `lanes.LanePaused` instead, where they can also be rolled back."""
 
-    def __init__(
-        self, ctx: RunContext, stage: str, lane_of: Callable[[RunState], str] | None = None
-    ) -> None:
-        self.ctx, self.stage, self.lane_of = ctx, stage, lane_of
+    def __init__(self, ctx: RunContext, stage: str) -> None:
+        self.ctx, self.stage = ctx, stage
 
     def __call__(self, state: RunState) -> RunState:
-        lane = self.lane_of(state) if self.lane_of else None
-        value: dict[str, Any] = interrupt({"kind": "paused", "stage": self.stage, "lane": lane})
-        if value.get("action") == "rollback":
-            return {
-                "action": "rollback",
-                "rollback_reason": value["reason"],
-                "rollback_by": value["by"],
-            }
-        self.ctx.event("resumed", self.stage, {"lane": lane}, actor="engineer")
-        return {"action": "retry", "paused": False, "attempts": 0}
-
-
-def after_paused(state: RunState) -> str:
-    return str(state.get("action", "retry"))
+        interrupt({"kind": "paused", "stage": self.stage, "lane": None})
+        self.ctx.event("resumed", self.stage, {"lane": None}, actor="engineer")
+        return {"paused": False, "attempts": 0}
 
 
 def review_step(

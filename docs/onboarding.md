@@ -71,7 +71,7 @@ Browser checks and Lighthouse, against a running app:
 | `src/main/resources/templates/`, `static/` | Thymeleaf page and fragments, CSS, self-hosted HTMX ([ADR 0006](adr/0006-htmx-progressive-enhancement-web-page.md)) |
 | `src/test/` | `*Test`: unit tests. `*IT`: integration tests that extend `IntegrationTest`, which resets the database before every test and controls Short Codes through a scripted generator |
 | `e2e/` | Playwright browser checks and Lighthouse (≥ 90 in every category) |
-| `orchestrator/` | The delivery orchestrator (Python, uv): setup, commands and tests in [`orchestrator/README.md`](../orchestrator/README.md); design in [ADRs 0007–0011](adr/0007-delivery-orchestrator.md) |
+| `orchestrator/` | The delivery orchestrator (Python, uv): setup, commands and tests in [`orchestrator/README.md`](../orchestrator/README.md); design in [ADRs 0007–0011](adr/0007-delivery-orchestrator.md) and [0020](adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md) |
 
 ## 5. How a change is made
 
@@ -113,4 +113,4 @@ Deferred ideas are never dropped silently: they go into [`docs/roadmap.md`](road
 
 ## 8. The delivery orchestrator (from Release 2)
 
-The orchestrator automates the chain in section 5 under human control. It's a separate, development-time tool: it ends at a PR that's ready to merge, never deploys, and never connects to a running service. The design is in [ADRs 0007–0011](adr/0007-delivery-orchestrator.md). Usage instructions will be added here when it's built.
+The orchestrator automates the chain in section 5 under human control. It's a separate, development-time tool: it ends at a PR that's ready to merge, never deploys, and never connects to a running service. The design is in [ADRs 0007–0011](adr/0007-delivery-orchestrator.md) and [0020](adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md). Usage instructions will be added here when it's built.

@@ -79,7 +79,7 @@ A point where a Run waits for a human decision: the spec, each ADR, the ticket b
 _Avoid_: Sign-off, review (on its own)
 
 **Lane**:
-The implement → document → PR Stages for one ticket, running in parallel with other Lanes whose tickets don't block it.
+The implement → document → PR Stages for one ticket, running in parallel with other Lanes whose tickets don't block it. A Lane starts once every ticket blocking it has merged, and at most `max_parallel_lanes` are in flight at once.
 _Avoid_: Branch, track, worker
 
 **Rollback**:
