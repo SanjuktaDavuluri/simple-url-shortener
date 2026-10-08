@@ -57,3 +57,43 @@ _Avoid_: Forward, resolve, expand
 **Click**:
 One successful Redirect of one Link. It is the unit that future counting and auditing are built on.
 _Avoid_: Hit, visit, view
+
+### Delivery
+
+These terms belong to the delivery plane: how changes to the shortener are made, not what the shortener does.
+
+**Run**:
+One delivery of one GitHub Issue through the Stages, from intake to close-out, identified as `R-NNNN`.
+_Avoid_: Job, pipeline, workflow (on its own)
+
+**Stage**:
+One step of a Run with a fixed purpose (intake, requirements, design, decompose, implement, document, PR, release readiness, close-out). It can start only after the Stages it depends on have passed their Exit Gates.
+_Avoid_: Step, phase, task
+
+**Exit Gate**:
+The deterministic check a Stage must pass before anything downstream may start.
+_Avoid_: Validation, check (on its own)
+
+**Approval Checkpoint**:
+A point where a Run waits for a human decision: the spec, each ADR, the ticket breakdown, each merge, and any dependency change.
+_Avoid_: Sign-off, review (on its own)
+
+**Lane**:
+The implement → document → PR Stages for one ticket, running in parallel with other Lanes whose tickets don't block it.
+_Avoid_: Branch, track, worker
+
+**Rollback**:
+Undoing one failed Lane (its PR closed, its branch removed) while keeping every Lane that passed.
+_Avoid_: Revert, undo
+
+**Safe-stop**:
+Halting a Run after its current action finishes, with its state saved so that it can resume.
+_Avoid_: Abort, kill, cancel
+
+**Re-plan**:
+Redoing only the Stages whose recorded inputs have changed since they ran, and everything downstream of them.
+_Avoid_: Restart, rerun
+
+**Event Log**:
+The append-only, hash-chained record of everything that happened in a Run. It is the system of record; the Issue comments are a readable mirror of it.
+_Avoid_: History, audit (on its own), log (on its own)
