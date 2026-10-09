@@ -4,12 +4,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from test_design_decompose import breakdown, ticket, writes_adrs
 from test_lane_end_to_end import git, merge, writes
 from test_requirements_stage import spec_text, writes_spec
 
 from conftest import Orchestrate
 from fakes import InMemoryGitHub, ScriptedAgent
+from orchestrator import lanes
 from orchestrator.agent import StepRequest, StepResult
 from orchestrator.cli import Deps, main
 
@@ -294,6 +296,40 @@ def test_a_step_over_its_cost_cap_keeps_its_work_and_stops_before_the_next_step(
     _, out = orchestrate("resume", "R-0001")
     assert len(calls(agent, "requirements")) == 1
     assert "Approvals waiting: spec" in out
+
+
+def test_one_resume_retries_a_lane_whose_pause_was_cut_short_by_a_crash(
+    orchestrate: Orchestrate,
+    github: InMemoryGitHub,
+    agent: ScriptedAgent,
+    repo: Path,
+    probe: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A crash (say, a GitHub rate limit) right after a Lane pauses leaves the Run between steps,
+    with nothing to wait for. One resume must still retry the Lane (#125)."""
+    two_tickets(orchestrate, github, agent, repo)
+    agent.script["implement:T1"] = [writes({"nothing.txt": "x"}) for _ in range(3)]
+    agent.script["implement:T2"] = [writes({"feature.txt": "t2"})]
+    agent.script["document"] = [writes({}, docs_updated=[]) for _ in range(2)]
+    waits = lanes.LanePaused.__call__
+
+    def crashes(self: lanes.LanePaused, state: Any) -> Any:
+        raise RuntimeError("API rate limit exceeded")
+
+    monkeypatch.setattr(lanes.LanePaused, "__call__", crashes)
+    with pytest.raises(RuntimeError):
+        orchestrate("resume", "R-0001")
+    monkeypatch.setattr(lanes.LanePaused, "__call__", waits)
+
+    _, out = orchestrate("status", "R-0001")
+    assert "State: paused" in out and "Waiting for: orchestrate resume R-0001" in out
+
+    agent.script["implement:T1"] = [writes({"feature.txt": "t1"})]
+    orchestrate("resume", "R-0001")
+
+    assert [r.context["ticket"]["key"] for r in calls(agent, "implement")].count("T1") == 4
+    assert github.pr_for_head("feat/100-store-expiry")
 
 
 def test_status_reports_stopped_and_paused_runs(
