@@ -17,9 +17,9 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 /**
- * Issue #112 (spec 0005 seam 2; stories 4, 9, 18, 20, 21 and 24): the Stats web page. The token goes
- * in a {@code POST} body, never the URL; every failure is the same {@code 404} form; HTMX gets only
- * the fragment.
+ * Issue #112 (spec 0005 seam 2; stories 4, 9, 18, 20, 21 and 24): the Stats web page. The token
+ * goes in a {@code POST} body, never the URL; every failure is the same {@code 404} form; HTMX gets
+ * only the fragment.
  */
 class StatsPageIT extends IntegrationTest {
 
@@ -51,7 +51,7 @@ class StatsPageIT extends IntegrationTest {
 
   @Test
   void aTokenInTheQueryStringIsNeitherPreFilledNorUsed() {
-    createLink("Ab3xK9q");
+    createLinkWithCode("Ab3xK9q");
 
     MvcTestResult page =
         mvc.get()
@@ -77,7 +77,7 @@ class StatsPageIT extends IntegrationTest {
 
   @Test
   void theRightTokenRendersTheStatsNotCached() {
-    createLink("Ab3xK9q");
+    createLinkWithCode("Ab3xK9q");
     redirect("Ab3xK9q");
     clock.advance(Duration.ofSeconds(1));
     redirect("Ab3xK9q");
@@ -100,7 +100,7 @@ class StatsPageIT extends IntegrationTest {
 
   @Test
   void aShortUrlStartingWithTheBaseUrlWorksLikeTheBareShortCode() {
-    createLink("Ab3xK9q");
+    createLinkWithCode("Ab3xK9q");
 
     MvcTestResult page = post("http://sho.rt/Ab3xK9q", TOKEN, false);
 
@@ -111,7 +111,7 @@ class StatsPageIT extends IntegrationTest {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void everyFailureIsTheSame404FormWithTheMessage(boolean viaHtmx) {
-    createLink("Ab3xK9q");
+    createLinkWithCode("Ab3xK9q");
     jdbcClient
         .sql("INSERT INTO links (short_code, long_url) VALUES ('Old1234', 'https://x.test/old')")
         .update();
@@ -135,7 +135,7 @@ class StatsPageIT extends IntegrationTest {
 
   @Test
   void anHtmxRequestGetsOnlyTheFragmentOnBothStatusesAndAPlainOneTheFullPage() {
-    createLink("Ab3xK9q");
+    createLinkWithCode("Ab3xK9q");
 
     for (String token : new String[] {TOKEN, "wrong"}) {
       Document fragment = Jsoup.parseBodyFragment(body(post("Ab3xK9q", token, true)));
@@ -150,8 +150,7 @@ class StatsPageIT extends IntegrationTest {
 
   @Test
   void htmxSwapsThe404OnTheStatsPage() {
-    Element config =
-        html(mvc.get().uri("/stats").exchange()).selectFirst("meta[name=htmx-config]");
+    Element config = html(mvc.get().uri("/stats").exchange()).selectFirst("meta[name=htmx-config]");
 
     assertThat(config.attr("content")).contains("\"404\"");
   }
@@ -173,7 +172,7 @@ class StatsPageIT extends IntegrationTest {
     assertThat(link.attr("href")).isEqualTo("/stats?short_code=Ab3xK9q");
   }
 
-  private void createLink(String code) {
+  private void createLinkWithCode(String code) {
     shortCodes.willReturn(code);
     manageTokens.willReturn(TOKEN);
     assertThat(

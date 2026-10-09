@@ -19,8 +19,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 
 /**
- * The Stats web page (spec 0005, ADR 0006): a second entry point to {@link LinkStatsService}, not
- * a second implementation. The token is only ever read from a {@code POST} body, never the query
+ * The Stats web page (spec 0005, ADR 0006): a second entry point to {@link LinkStatsService}, not a
+ * second implementation. The token is only ever read from a {@code POST} body, never the query
  * string. Every answer is {@code Cache-Control: no-store}, and every failure is the same {@code
  * 404} form, so the page never says which Short Codes exist (ADR 0014).
  */
