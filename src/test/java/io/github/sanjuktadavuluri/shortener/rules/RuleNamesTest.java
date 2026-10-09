@@ -18,7 +18,6 @@ class RuleNamesTest {
     assertThat(ruleOf(new HostPresentRule(), "http://")).isEqualTo("host_present");
     assertThat(ruleOf(new MaxLengthRule(), "http://host.test/" + "a".repeat(5000)))
         .isEqualTo("max_length");
-    assertThat(ruleOf(new SelfLinkRule("http://sho.rt"), "http://sho.rt/x"))
-        .isEqualTo("self_link");
+    assertThat(ruleOf(new SelfLinkRule("http://sho.rt"), "http://sho.rt/x")).isEqualTo("self_link");
   }
 }

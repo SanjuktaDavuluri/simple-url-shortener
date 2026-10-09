@@ -68,7 +68,7 @@ public class LinkService {
       String shortCode = shortCodes.next();
       try {
         links.save(shortCode, longUrl, manageTokenHash, expiry);
-        metrics.counter("shortener.links.created").increment();
+        metrics.counter("shortener.links.created.total").increment();
         return new Link(
             shortCode, properties.baseUrl() + "/" + shortCode, longUrl, manageToken, expiry);
       } catch (ShortCodeTakenException collision) {

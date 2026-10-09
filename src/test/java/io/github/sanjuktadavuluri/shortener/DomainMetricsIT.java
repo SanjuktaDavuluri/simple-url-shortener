@@ -46,7 +46,7 @@ class DomainMetricsIT extends IntegrationTest {
     assertThat(mvc.get().uri("/Nope123")).hasStatus(404);
     String after = scrape();
 
-    assertThat(delta(before, after, "shortener_links_created_total")).isEqualTo(1);
+    assertThat(delta(before, after, "shortener_links_total")).isEqualTo(1);
     assertThat(delta(before, after, "shortener_rejections_total{rule=\"self_link\"}")).isEqualTo(1);
     assertThat(delta(before, after, "shortener_collisions_total")).isEqualTo(1);
     assertThat(delta(before, after, "shortener_redirects_total{outcome=\"found\"}")).isEqualTo(2);
@@ -89,7 +89,7 @@ class DomainMetricsIT extends IntegrationTest {
 
     String body = scrape();
 
-    assertThat(body).contains("http_server_requests_seconds", "uri=\"/{shortCode}\"");
+    assertThat(body).contains("http_server_requests_seconds", "uri=\"/{shortCode:");
     assertThat(body).contains("jvm_memory_used_bytes", "hikaricp_connections");
   }
 
