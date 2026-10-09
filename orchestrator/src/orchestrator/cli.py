@@ -171,6 +171,9 @@ def _print_run(workspace: Workspace, run: str) -> None:
     question = _open_question(log)
     if question is not None:
         print(f"Waiting for: an answer to Q{question} on Issue #{issue}")
+    if _run_state(log) == "paused":
+        reason = next(e["data"].get("reason", "") for e in reversed(log) if e["type"] == "paused")
+        print(f"Waiting for: orchestrate resume {run} (paused: {reason})")
     for pr in _waiting_checks(log) if _run_state(log) == "active" else []:
         print(f"Waiting for: required checks on PR #{pr}")
     approvals = _open_approvals(log)
@@ -263,6 +266,11 @@ def _resume(deps: Deps, workspace: Workspace, args: argparse.Namespace) -> int:
     if waiting is None:
         if graph.pending_step(ctx):
             graph.continue_run(ctx)
+            # A crash right after a pause left the Run between steps: continuing only reaches
+            # the pause again, so retry it as this resume asked (#125).
+            reached = graph.waiting_on(ctx)
+            if state == "paused" and reached and reached["kind"] == "paused":
+                graph.resume(ctx, {"action": "retry"})
     elif waiting["kind"] == "paused":
         graph.resume(ctx, {"action": "retry"})
     elif waiting["kind"] == "answer":
