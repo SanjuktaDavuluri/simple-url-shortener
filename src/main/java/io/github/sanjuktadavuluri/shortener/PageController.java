@@ -5,6 +5,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Optional;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
@@ -46,6 +47,10 @@ class PageController {
    * Creates a Link from the form. A blank {@code expires_in_days} means no Lifetime; any other text
    * must be a Lifetime, checked before the Rule Set as in the API (spec 0004). Every answer keeps
    * what was typed in both fields.
+   *
+   * <p>A created Link's result shows its Manage Token, the only time it is ever shown, so every
+   * answer to this route is sent with {@code Cache-Control: no-store} and never kept by a browser
+   * or proxy cache (spec 0005, stories 3 and 7; ADR 0014).
    */
   @PostMapping(path = "/", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
   String shorten(
@@ -54,6 +59,7 @@ class PageController {
       @RequestHeader(name = "HX-Request", defaultValue = "false") boolean viaHtmx,
       Model model,
       HttpServletResponse response) {
+    response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
     model.addAttribute("longUrl", longUrl);
     model.addAttribute("expiresInDays", expiresInDays);
     try {
