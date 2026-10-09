@@ -63,6 +63,18 @@ curl -si localhost:8000/Qp7tZ2w          # from expires_at on, the Expired Link 
 
 An Expired Link records no Click, and `HEAD` gets the same `410` without a body. An unknown Short Code is still `404`. An `expires_in_days` that isn't a whole number from 1 to 365 (`0`, `366`, `1.5`, `"30"`, `true`) gets a `422` with "expires_in_days must be a whole number of days from 1 to 365.", and no Link is created. The web page has the same option as an "Expires after (days)" field and shows the Expiry in UTC with the result. An Expired Link stays stored, and its Short Code is never reused ([ADR 0022](adr/0022-expired-links-kept-short-codes-never-reused.md)). There's nothing to configure.
 
+**Try Stats locally ([spec 0005](specs/0005-click-stats-per-link.md)).** Use a scratch copy so your own service and data stay untouched:
+
+```bash
+PORT=8765 DATA_DIR=/tmp/shortener-scratch scripts/local.sh start
+curl -s -X POST localhost:8765/links -H 'content-type: application/json' -d '{"url": "https://example.com"}'
+# 201 {"short_code":"Ab3xK9q",...,"manage_token":"<shown only this once>"}
+curl -si localhost:8765/Ab3xK9q                       # follow it a few times: each 302 records a Click
+curl -s localhost:8765/links/Ab3xK9q/stats -H 'Authorization: Bearer <manage_token>'
+```
+
+The Stats show the Headline Click count (`clicks`, bots left out), `bot_clicks`, `last_click_at`, 30 days of `clicks_per_day`, and the Agent Category, Device Class and top Referrer Host breakdowns. Counts can trail the latest Redirects by about a second. A wrong or missing token, an unknown Short Code and a Link created before Stats all give the same `404`. In the browser, open <http://localhost:8765/stats>, enter the Short Code and the token (the token is never put in the URL). Stop the scratch copy with `PORT=8765 DATA_DIR=/tmp/shortener-scratch scripts/local.sh stop`.
+
 To run a second, throwaway copy next to it, give it its own port and data directory: `PORT=8765 DATA_DIR=/tmp/shortener-scratch scripts/local.sh start`. The same pattern keeps automated runs away from your service.
 
 Every environment variable, its default and meaning is in the [runbook's configuration reference](runbook.md#configuration-reference). It also covers starting, checking, diagnosing and stopping the service.
