@@ -1,5 +1,5 @@
 ---
-status: draft
+status: implemented
 date: 2026-10-08
 release: 3
 roadmap: R3
