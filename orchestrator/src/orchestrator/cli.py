@@ -64,6 +64,13 @@ def _parser() -> argparse.ArgumentParser:
         "checkpoint", help="as for approve, or lane:<key> to roll a paused Lane back"
     )
     reject.add_argument("--reason", required=True)
+    waive = commands.add_parser(
+        "waive",
+        help="waive a merged PR's missing ticket reference at release readiness, with a reason",
+    )
+    waive.add_argument("run")
+    waive.add_argument("pr", type=int, help="the merged PR whose commit has no ticket reference")
+    waive.add_argument("--reason", required=True)
     replan = commands.add_parser(
         "replan", help="check a Run's approved inputs for changes, and re-plan what depends on them"
     )
@@ -442,6 +449,35 @@ def _decide(deps: Deps, workspace: Workspace, args: argparse.Namespace) -> int:
     return 0
 
 
+def _waive(deps: Deps, workspace: Workspace, args: argparse.Namespace) -> int:
+    """Records the engineer's waiver of one PR's commit-reference problem. Release readiness
+    reads it on the next resume; nothing else a gate checks can be waived."""
+    ctx = _context(deps, workspace, args.run)
+    waiting = graph.waiting_on(ctx)
+    if not waiting or waiting["kind"] != "paused" or waiting.get("stage") != "release_readiness":
+        print(f"{args.run} is not paused in release readiness", file=sys.stderr)
+        return REFUSED
+    by = ctx.github.current_user()
+    ctx.event(
+        "waived",
+        "release_readiness",
+        {
+            "checkpoint": f"waive:{args.pr}",
+            "pr": args.pr,
+            "by": by,
+            "channel": "cli",
+            "reason": args.reason,
+        },
+        actor="engineer",
+    )
+    ctx.mirror(
+        f"PR #{args.pr}'s missing ticket reference waived by @{by}: {args.reason}\n\n"
+        f"Continue with `orchestrate resume {args.run}`."
+    )
+    print(f"Waived PR #{args.pr}; now run `orchestrate resume {args.run}`")
+    return 0
+
+
 def _verify(workspace: Workspace, run: str | None) -> int:
     if run is not None and not workspace.exists(run):
         print(f"Run {run} was not found", file=sys.stderr)
@@ -501,6 +537,8 @@ def main(argv: Sequence[str] | None = None, *, deps: Deps | None = None) -> int:
         return _stop(deps, workspace, args.run)
     if args.command == "replan":
         return _replan(deps, workspace, args.run)
+    if args.command == "waive":
+        return _waive(deps, workspace, args)
     return _decide(deps, workspace, args)
 
 

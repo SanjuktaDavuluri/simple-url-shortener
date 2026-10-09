@@ -1,5 +1,6 @@
 """One ticket through a Lane, then release readiness and close-out (#29), through the CLI seam."""
 
+import dataclasses
 import json
 import subprocess
 from collections.abc import Callable
@@ -405,6 +406,87 @@ def test_release_readiness_fails_on_a_commit_without_its_ticket(
     _, out = orchestrate("status", "R-0001")
     assert "State: paused" in out
     assert not [n for n, p in github.prs.items() if p.head == "docs/run-R-0001-close-out"]
+
+
+def push_commit_without_ticket(
+    repo: Path, github: InMemoryGitHub, pr: int, message: str = "tweak"
+) -> None:
+    head = github.pr(pr).head
+    pusher = repo.parent / "pusher"
+    git(repo.parent, "clone", "-q", "-b", head, str(repo.parent / "remote.git"), str(pusher))
+    (pusher / "extra.txt").write_text("x")
+    git(pusher, "add", ".")
+    git(pusher, "-c", "user.email=h@example.com", "-c", "user.name=H", "commit", "-qm", message)
+    git(pusher, "push", "-q")
+
+
+def test_an_engineer_can_waive_a_missing_ticket_reference_and_the_run_finishes(
+    orchestrate: Orchestrate,
+    github: InMemoryGitHub,
+    agent: ScriptedAgent,
+    repo: Path,
+    published: Callable[[], int],
+) -> None:
+    lane_script(agent)
+    pr = through_docs_pr(orchestrate, github, repo, published)
+    push_commit_without_ticket(repo, github, pr)
+    merge(repo, github, pr)
+    orchestrate("resume", "R-0001")
+
+    code, out = orchestrate("waive", "R-0001", str(pr), "--reason", "hand edit to a protected path")
+    assert code == 0, out
+    code, out = orchestrate("resume", "R-0001")
+
+    assert code == 0, out
+    waived = [e["data"] for e in of_type(repo, "waived")]
+    assert len(waived) == 1
+    assert waived[0]["pr"] == pr and waived[0]["reason"] == "hand edit to a protected path"
+    assert waived[0]["by"] and waived[0]["checkpoint"] == f"waive:{pr}"
+    gates = [e for e in of_type(repo, "gate_result") if e["stage"] == "release_readiness"]
+    assert gates[0]["data"]["passed"] is False
+    assert gates[-1]["data"]["passed"] is True and gates[-1]["data"]["waived"] == [pr]
+    close_out = github.pr(github.pr_for_head("docs/run-R-0001-close-out"))
+    report = on_remote(repo, close_out.head, "delivery/runs/R-0001/report.md")
+    assert f"waive:{pr}" in report and "hand edit to a protected path" in report
+
+
+def test_a_waiver_is_refused_unless_the_run_is_paused_in_release_readiness(
+    orchestrate: Orchestrate,
+    github: InMemoryGitHub,
+    agent: ScriptedAgent,
+    repo: Path,
+    published: Callable[[], int],
+) -> None:
+    lane_script(agent)
+    pr = through_docs_pr(orchestrate, github, repo, published)
+
+    code, out = orchestrate("waive", "R-0001", str(pr), "--reason", "no")
+
+    assert code != 0 and "release readiness" in out
+    assert not of_type(repo, "waived")
+
+
+def test_a_waiver_covers_only_the_commit_reference_problem(
+    orchestrate: Orchestrate,
+    github: InMemoryGitHub,
+    agent: ScriptedAgent,
+    repo: Path,
+    published: Callable[[], int],
+) -> None:
+    lane_script(agent)
+    pr = through_docs_pr(orchestrate, github, repo, published)
+    push_commit_without_ticket(repo, github, pr)
+    merge(repo, github, pr)
+    orchestrate("resume", "R-0001")
+    github.prs[pr] = dataclasses.replace(github.pr(pr), body="no closing keyword")
+
+    orchestrate("waive", "R-0001", str(pr), "--reason", "hand edit")
+    orchestrate("resume", "R-0001")
+
+    gates = [e for e in of_type(repo, "gate_result") if e["stage"] == "release_readiness"]
+    assert gates[-1]["data"]["passed"] is False
+    assert all("does not reference" not in p for p in gates[-1]["data"]["problems"])
+    assert any("Closes" in p for p in gates[-1]["data"]["problems"])
 
 
 # The delivery board follows each Lane (#58)
