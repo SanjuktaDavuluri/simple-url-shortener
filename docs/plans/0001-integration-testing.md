@@ -409,6 +409,15 @@ Every user story in [spec 0005](../specs/0005-click-stats-per-link.md) and the t
 | 18, 36, 39–41 | The runbook has start, check, diagnose, stop, configuration, metrics, data files, logging and exposure sections; every spec metric with name, type, tags and meaning; the stop bound | Document: `docs/runbook.md` |
 | 42, 43 | Impact analysis; each criterion traced to a test | Document: spec 0006 *Impact Analysis*; this table. The other spec 0006 stories are traced by their own tickets' rows (#116 onward) |
 
+### Spec 0007 coverage (container tickets, #171)
+
+| Story | Claim | Proven by |
+|---|---|---|
+| 1, 6, 7, 8, 12, 13, 21, 22 | The built image becomes healthy, creates and follows a Link, keeps data across a restart on the same volume, runs as non-root, and stops with exit `0` within the bound | `scripts/container-test.sh` (black-box against the image); run in CI by the **Container (image build + container tests)** job, not a required check |
+| 10 | A malformed `BASE_URL` exits non-zero naming the variable | `scripts/container-test.sh` (misconfiguration check) |
+| 16, 18, 29 | `compose.yaml` is valid and passes exactly the runbook's documented settings | `ComposeFileTest` → `composePassesNoSettingTheRunbookDoesNotDocument`, `composePassesEverySettingTheRunbookDocumentsExceptTheFixedOnes`, `driftIsDetectedInBothDirections`, `dockerComposeConfigValidates` |
+| 19, 26, 27, 28 | Runbook container section, onboarding steps, this matrix | Documents: `docs/runbook.md`, `docs/onboarding.md`, this plan |
+
 ## 6. Entry and exit criteria
 
 - **Entry (per ticket):** the ticket's acceptance criteria are listed in this plan's matrix before implementation starts.

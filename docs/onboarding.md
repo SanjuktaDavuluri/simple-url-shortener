@@ -94,6 +94,19 @@ Browser checks and Lighthouse, against a running app:
 (cd e2e && npm ci && BASE_URL=http://localhost:8000 npm run all)
 ```
 
+### Run it as a container
+
+Needs Docker, nothing else (no JDK or Maven). Details: the runbook's [Run the container](runbook.md#run-the-container).
+
+```bash
+docker build -t shortener .
+docker compose up                    # http://localhost:8000; data on the named volume
+docker compose down                  # keeps the data; `down -v` deletes it
+HOST_PORT=9000 HOST_MANAGEMENT_PORT=9001 BASE_URL=http://localhost:9000 PORT=9000 docker compose up   # beside your own service
+```
+
+CI's container job runs `scripts/container-test.sh`. Run it locally to reproduce CI: it builds the image, starts it on port 8765 with a scratch volume (never 8000 or `.local/`), and checks readiness, create and follow, persistence across a restart, non-root, a graceful `docker stop` and a misconfiguration exit. `PORT=... MANAGEMENT_PORT=... scripts/container-test.sh` changes the ports.
+
 ## 4. Find your way around the code
 
 | Where | What |
