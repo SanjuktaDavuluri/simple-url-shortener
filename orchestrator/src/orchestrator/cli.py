@@ -132,14 +132,31 @@ def _open_approvals(log: list[dict[str, Any]]) -> list[str]:
     return [checkpoint for checkpoint, open_ in waiting.items() if open_]
 
 
-def _waiting_checks(log: list[dict[str, Any]]) -> list[int]:
-    last: dict[int, str] = {}
+def _pr_states(log: list[dict[str, Any]]) -> dict[int, str]:
+    """Each PR the Run opened, by what it waits for (#75): checks pending, checks failed,
+    awaiting merge, or nothing (merged, closed). A merge approval is the merge on GitHub."""
+    states: dict[int, str] = {}
     for e in log:
-        if e["type"] in ("pr_opened", "pr_updated", "checks_passed", "checks_failed"):
-            last[e["data"]["pr"]] = e["type"]
-        elif e["type"] == "approval_withdrawn" and e["data"]["checkpoint"].startswith("merge:"):
-            last[int(e["data"]["checkpoint"].removeprefix("merge:"))] = "closed"
-    return [pr for pr, t in last.items() if t in ("pr_opened", "pr_updated")]
+        data = e.get("data") or {}
+        checkpoint = str(data.get("checkpoint", ""))
+        merge_pr = int(checkpoint.removeprefix("merge:")) if checkpoint.startswith("merge:") else 0
+        if e["type"] in ("pr_opened", "pr_updated"):
+            states[data["pr"]] = "checks pending"
+        elif e["type"] == "checks_failed":
+            states[data["pr"]] = "checks failed"
+        elif e["type"] == "checks_passed":
+            states[data["pr"]] = "merged" if data.get("via") == "merged" else "awaiting merge"
+        elif e["type"] == "approved" and merge_pr:
+            states[merge_pr] = "merged"
+        elif e["type"] in ("rejected", "approval_withdrawn") and merge_pr:
+            states[merge_pr] = "closed"
+        elif e["type"] == "stage_passed" and e["stage"] == "pr" and "pr" in data:
+            states[data["pr"]] = "merged"
+    return states
+
+
+def _waiting_checks(log: list[dict[str, Any]]) -> list[int]:
+    return [pr for pr, state in _pr_states(log).items() if state == "checks pending"]
 
 
 def _run_state(log: list[dict[str, Any]]) -> str:
@@ -176,6 +193,9 @@ def _print_run(workspace: Workspace, run: str) -> None:
         print(f"Waiting for: orchestrate resume {run} (paused: {reason})")
     for pr in _waiting_checks(log) if _run_state(log) == "active" else []:
         print(f"Waiting for: required checks on PR #{pr}")
+    prs = _pr_states(log)
+    if prs:
+        print("PRs: " + ", ".join(f"#{pr} {state}" for pr, state in prs.items()))
     approvals = _open_approvals(log)
     print(f"Approvals waiting: {', '.join(approvals) if approvals else 'none'}")
     cost = sum(e["data"].get("cost_usd", 0.0) for e in log if e["type"] == "agent_call")

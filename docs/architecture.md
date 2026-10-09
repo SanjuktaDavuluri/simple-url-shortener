@@ -34,40 +34,55 @@ The rest of this document describes the product plane. The orchestrator's stage 
 
 The code generator takes **no input**; it never sees the long URL (ADR 0003). The database's uniqueness constraint is the final guarantee against duplicate codes. Shortening the same URL twice creates two independent links.
 
+Since [spec 0004](specs/0004-expiring-links.md) the request may carry an optional **Lifetime** (`expires_in_days`, a whole number of days from 1 to 365). The request is checked in order: its shape (a malformed request), then the Lifetime (a validation message, not a Rejection Reason, because Lifetime is not a Rule), then the Rule Set. `LinkService` turns the Lifetime into a fixed **Expiry**: the creation instant from the injected `Clock` plus the Lifetime in exact 24-hour days, in UTC. The Link Store saves it in the nullable `links.expires_at` column (Flyway `V3__add_link_expiry.sql`); a Link created without a Lifetime stores `NULL` and never expires. The `201` always carries `expires_at`. The web page (`POST /`) uses the same `LinkService` path, so the two entry points can't drift. The Manage Token that the `201` also carries since #104 ([spec 0005](specs/0005-click-stats-per-link.md)) is left out of this diagram.
+
 ```mermaid
 sequenceDiagram
     autonumber
     actor Client
-    participant API as API (Spring MVC)
+    participant API as API (LinkController)
+    participant Svc as LinkService
     participant Gen as ShortCodeGenerator
     participant Store as LinkStore (JdbcClient + SQLite)
 
-    Client->>API: POST /links {"url": "https://example.com/very/long"}
-    API->>API: validate(url)
-    alt invalid URL
-        API-->>Client: 422 Unprocessable Entity
-    else valid URL
-        loop until saved or max attempts reached
-            API->>Gen: next()
-            Gen-->>API: "Ab3xK9q" (7 random base62 chars)
-            API->>Store: save(code, url)
-            alt code already taken
-                Store-->>API: conflict, so retry
-            else saved
-                Store-->>API: ok
+    Client->>API: POST /links {"url": "https://example.com/very/long", "expires_in_days": 30}
+    alt url missing or not a string
+        API-->>Client: 422 malformed request
+    else expires_in_days present, not null, not a whole number from 1 to 365
+        API-->>Client: 422 "expires_in_days must be a whole number of days from 1 to 365." (no Link)
+    else request well formed (Lifetime optional)
+        API->>Svc: create(url, Lifetime?)
+        Svc->>Svc: Rule Set check(url)
+        alt a Rule is broken
+            Svc-->>API: Rejection Reason
+            API-->>Client: 422 Unprocessable Entity
+        else every Rule passes
+            Svc->>Svc: Expiry = Clock now + Lifetime × 24 h (UTC), none without a Lifetime
+            loop until saved or 5 attempts reached
+                Svc->>Gen: next()
+                Gen-->>Svc: "Ab3xK9q" (7 random base62 chars)
+                Svc->>Store: save(code, url, Expiry?)
+                Note over Store: INSERT INTO links (…, expires_at)<br/>expires_at = ISO-8601 UTC, or NULL
+                alt code already taken (also by an Expired Link)
+                    Store-->>Svc: Collision, so draw again
+                else saved
+                    Store-->>Svc: ok
+                end
             end
-        end
-        alt saved
-            API-->>Client: 201 {"short_url": "http://host/Ab3xK9q"}
-        else max attempts exhausted
-            API-->>Client: 503 Service Unavailable
+            alt saved
+                API-->>Client: 201 {"short_url": "http://host/Ab3xK9q", "expires_at": "2026-11-07T10:00:00Z" or null}
+            else max attempts exhausted
+                API-->>Client: 503 Service Unavailable
+            end
         end
     end
 ```
 
 ### Follow a short link (the Redirect)
 
-The Redirect handler (`LinkController.followLink`) is the single point where Clicks are produced (ADR 0005). Since Release 2 ([spec 0003](specs/0003-clickstream.md)) a successful `GET` Redirect sends its `302` first, then builds a **Click** and hands it to the **Click Recorder**, which returns at once and never throws ([ADR 0012](adr/0012-clicks-recorded-asynchronously.md)). The `Click Classifier` reduces the raw `Referer` and `User-Agent` to a Referrer Host, an Agent Category and a Device Class in memory; the raw values are never stored or logged, and the IP address is not read at all ([ADR 0013](adr/0013-clicks-store-minimal-non-personal-data.md)). A `404` and a `HEAD` request record nothing. The response is byte-for-byte what Release 1 sent.
+The Redirect handler (`LinkController.followLink`) is the single point where Clicks are produced (ADR 0005). Since Release 2 ([spec 0003](specs/0003-clickstream.md)) a successful `GET` Redirect sends its `302` first, then builds a **Click** and hands it to the **Click Recorder**, which returns at once and never throws ([ADR 0012](adr/0012-clicks-recorded-asynchronously.md)). The `Click Classifier` reduces the raw `Referer` and `User-Agent` to a Referrer Host, an Agent Category and a Device Class in memory; the raw values are never stored or logged, and the IP address is not read at all ([ADR 0013](adr/0013-clicks-store-minimal-non-personal-data.md)). A `404` and a `HEAD` request record nothing. For a Link that hasn't expired, the response is byte-for-byte what Release 1 sent.
+
+Since [spec 0004](specs/0004-expiring-links.md) the lookup returns the Long URL **and the Expiry** in one query by primary key (`findDestination`), so the Redirect is still one database lookup. The handler compares the Expiry with the injected `Clock` in Java, not in SQL. From the exact instant of its Expiry (`now >= Expiry`) a Link is an **Expired Link**: its Short URL answers `410 Gone` with `Content-Type: text/plain;charset=UTF-8`, `Cache-Control: no-store` and the body `This link has expired.` (`HEAD` gets the same status and headers with no body), and the Click Recorder is never called. A Link with no Expiry never expires. So the Redirect has three branches:
 
 ```mermaid
 sequenceDiagram
@@ -78,10 +93,18 @@ sequenceDiagram
     participant Cls as ClickClassifier
     participant Rec as ClickRecorder (queued)
 
-    Client->>API: GET /Ab3xK9q (Referer, User-Agent)
-    API->>Store: findLongUrl("Ab3xK9q")
-    alt found
-        Store-->>API: "https://example.com/very/long"
+    Client->>API: GET or HEAD /Ab3xK9q (Referer, User-Agent)
+    API->>Store: findDestination("Ab3xK9q")
+    Note over Store: one SELECT by primary key:<br/>long_url, expires_at
+    alt unknown Short Code
+        Store-->>API: none
+        API-->>Client: 404 Not Found (no Click)
+    else found, Expiry set and Clock now >= Expiry (Expired Link)
+        Store-->>API: Long URL, Expiry
+        API-->>Client: 410 Gone, text/plain, no-store, "This link has expired." (no body for HEAD)
+        Note over API,Rec: no Click: the Click Recorder is never called
+    else found, no Expiry or Clock now < Expiry
+        Store-->>API: Long URL, Expiry or none
         API-->>Client: 302 Found, Location: https://example.com/very/long (no-store, ADR 0005)
         opt GET only (HEAD records nothing)
             API->>Cls: classify(referer, userAgent)
@@ -89,10 +112,21 @@ sequenceDiagram
             API->>Rec: record(Click: Short Code, time (UTC), attributes)
             Note over API,Rec: returns at once and never throws,<br/>a failure here costs only this Click (logged, counted)
         end
-    else not found
-        Store-->>API: none
-        API-->>Client: 404 Not Found (no Click)
     end
+```
+
+### A Link's Expiry (Expiring Links)
+
+The Expiry is fixed when the Link is created and never changes, so Links stay immutable and nothing has to run in the background: there is no purge job, no new setting, and expiry depends only on time, never on Clicks. An Expired Link **stays stored** in `links`, so the primary key keeps refusing its Short Code: drawing it again is a Collision like any other, and an old Short URL can never start sending people somewhere new. Its Clicks stay in `clicks` for auditing and R2 ([ADR 0022](adr/0022-expired-links-kept-short-codes-never-reused.md)). Links created before `V3__add_link_expiry.sql` have `expires_at` `NULL` and never expire.
+
+```mermaid
+flowchart LR
+    C["API client / web page"] -->|"url, expires_in_days? (Lifetime, 1–365)"| S["Link creation<br/>(LinkService)"]
+    S -->|"Expiry = Clock now + Lifetime × 24 h (UTC)"| L[("links.expires_at<br/>ISO-8601 UTC, or NULL")]
+    L --> Q{"Redirect:<br/>Clock now >= Expiry?"}
+    Q -->|"no Expiry, or not yet"| R["302 + one Click on GET"]
+    Q -->|"yes: Expired Link"| G["410 Gone, no-store, no Click"]
+    G -.->|"kept: Short Code never reused,<br/>Clicks kept (ADR 0022)"| L
 ```
 
 ### The Click flow (Clickstream)

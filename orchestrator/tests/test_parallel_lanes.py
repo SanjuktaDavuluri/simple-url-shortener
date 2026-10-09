@@ -11,6 +11,7 @@ from test_lane_end_to_end import events, merge, of_type, stage_state, writes
 from conftest import Orchestrate
 from fakes import InMemoryGitHub, ScriptedAgent
 from orchestrator.agent import StepRequest, StepResult
+from orchestrator.github import Check
 
 T1, T2 = ticket("T1", "Store expiry t1"), ticket("T2", "Show expiry t2")
 T3 = ticket("T3", "Expire links t3", ("T1", "T2"))
@@ -178,3 +179,35 @@ def test_a_paused_lane_does_not_hold_back_an_independent_lane(
     merge(repo, github, lane_pr(github, "T2") or 0)
     _, out = orchestrate("resume", "R-0001")
     assert "State: finished" in out
+
+
+def test_status_tells_merged_pending_and_awaiting_merge_prs_apart(
+    orchestrate: Orchestrate, github: InMemoryGitHub, repo: Path, plan: Plan
+) -> None:
+    """#75: a merged PR waits for nothing, so status never lists it under required checks."""
+    T1, T2, T3 = (
+        ticket("T1", "Store expiry t1"),
+        ticket("T2", "Show expiry t2"),
+        ticket("T3", "Expire t3"),
+    )
+    github.default_checks = (Check("Verify", "pending", ""),)
+    plan(T1, T2, T3, settings="max_parallel_lanes: 3\n")
+    orchestrate("resume", "R-0001")  # every Lane reaches its PR; its checks are still running
+    t1, t2, t3 = (lane_pr(github, k) or 0 for k in ("T1", "T2", "T3"))
+    for e in of_type(repo, "pr_opened"):
+        if e["data"]["pr"] in (t1, t2):
+            github.set_checks(e["data"]["pr"], e["data"]["sha"], Check("Verify", "success", ""))
+    orchestrate("resume", "R-0001")
+    merge(repo, github, t1)
+    orchestrate("resume", "R-0001")  # main moved: T2 and T3 are updated and checked again
+    t2_sha = [e["data"]["sha"] for e in of_type(repo, "pr_updated") if e["data"]["pr"] == t2][-1]
+    github.set_checks(t2, t2_sha, Check("Verify", "success", ""))
+    orchestrate("resume", "R-0001")
+
+    _, out = orchestrate("status", "R-0001")
+
+    [prs] = [line for line in out.splitlines() if line.startswith("PRs: ")]
+    for expected in (f"#{t1} merged", f"#{t2} awaiting merge", f"#{t3} checks pending"):
+        assert expected in prs
+    assert f"Waiting for: required checks on PR #{t3}" in out
+    assert f"required checks on PR #{t1}" not in out and f"required checks on PR #{t2}" not in out
