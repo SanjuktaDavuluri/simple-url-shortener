@@ -43,9 +43,11 @@ Only what the acceptance criteria need. Use the vocabulary in CONTEXT.md and res
 Never edit the spec. If it has a gap you can't implement around, output spec_amendment: {{text
 (the whole amended spec), reason}} instead, and the amendment goes to the engineer for approval."""
 DOCUMENT = """\
-Update the documents ticket #{issue} touched: the integration-testing plan's matrix and the README
-where behaviour changed. Never edit the spec: close-out marks it implemented. Output docs_updated
-(paths), or none needed."""
+Document ticket #{issue}. Append its rows to the integration-testing plan's matrix from the
+acceptance criteria you were given, without reading the whole plan. Write what users or operators
+now see or do to docs/Issue-{issue}-readme.md (a new file, a few short bullets). Never edit
+README.md or the spec: the README is rewritten once the project is complete, and close-out marks
+the spec implemented. Output docs_updated (paths), or none needed."""
 
 Lane = dict[str, Any]
 _amendments = threading.Lock()  # Lanes run in parallel; amendments are numbered one at a time
