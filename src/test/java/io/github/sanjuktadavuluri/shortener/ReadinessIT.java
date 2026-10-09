@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.sanjuktadavuluri.shortener.clicks.Click;
 import io.github.sanjuktadavuluri.shortener.clicks.ClickStore;
+import io.github.sanjuktadavuluri.shortener.clicks.ClickSummary;
 import io.github.sanjuktadavuluri.shortener.clicks.QueuedClickRecorder;
 import java.net.http.HttpResponse;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -188,6 +190,11 @@ class ReadinessIT {
         throw new IllegalStateException(e);
       }
       real.saveAll(clicks);
+    }
+
+    @Override
+    public ClickSummary summarise(String shortCode, Instant windowStart) {
+      return real.summarise(shortCode, windowStart);
     }
 
     @Override
