@@ -1,7 +1,7 @@
 package io.github.sanjuktadavuluri.shortener;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 import jakarta.servlet.FilterChain;
 import java.util.concurrent.atomic.AtomicReference;
@@ -59,9 +59,10 @@ class RequestIdFilterTest {
           throw new IllegalStateException("The stand-in handler always fails");
         };
 
-    assertThatThrownBy(
-            () -> filter.doFilter(new MockHttpServletRequest("GET", "/"), response, failing))
-        .isInstanceOf(IllegalStateException.class);
+    assertThatCode(() -> filter.doFilter(new MockHttpServletRequest("GET", "/"), response, failing))
+        .doesNotThrowAnyException();
+
+    assertThat(response.getStatus()).isEqualTo(500);
 
     assertThat(inMdc.get()).isNotBlank().isEqualTo(response.getHeader("X-Request-Id"));
     assertThat(MDC.get("request_id")).isNull();

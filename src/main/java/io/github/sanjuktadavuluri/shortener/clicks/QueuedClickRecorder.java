@@ -91,6 +91,9 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
   private boolean warnedBefore;
   private long lastWarningAt;
 
+  /** What the last stop saved and dropped. Guarded by lock. */
+  private StopCounts lastStop = new StopCounts(0, 0);
+
   public QueuedClickRecorder(
       ClickStore store,
       int queueCapacity,
@@ -265,6 +268,16 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
     }
   }
 
+  /** The Clicks the last {@link #stop()} saved and dropped; zero before any stop. */
+  public StopCounts lastStop() {
+    lock.lock();
+    try {
+      return lastStop;
+    } finally {
+      lock.unlock();
+    }
+  }
+
   /**
    * The most Clicks the queue holds before new ones are dropped: readiness compares pending Clicks
    * with it (spec 0006).
@@ -296,11 +309,15 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
   @Override
   public void stop() {
     Thread draining;
+    long recordedBefore;
+    long droppedBefore;
     lock.lock();
     try {
       if (!running || stopping) {
         return;
       }
+      recordedBefore = recorded;
+      droppedBefore = dropped;
       stopping = true;
       draining = writer;
       work.signalAll();
@@ -318,6 +335,7 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
         settled = accepted;
         queue.clear();
       }
+      lastStop = new StopCounts(recorded - recordedBefore, dropped - droppedBefore);
       running = false;
       stopping = false;
       writer = null;

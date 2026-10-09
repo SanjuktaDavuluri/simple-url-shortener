@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import io.github.sanjuktadavuluri.shortener.clicks.Click;
 import io.github.sanjuktadavuluri.shortener.clicks.ClickClassifier;
 import io.github.sanjuktadavuluri.shortener.clicks.ClickRecorder;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
@@ -54,13 +55,19 @@ class LinkController {
   private final LinkStore links;
   private final ClickRecorder clickRecorder;
   private final Clock clock;
+  private final MeterRegistry metrics;
 
   LinkController(
-      LinkService linkService, LinkStore links, ClickRecorder clickRecorder, Clock clock) {
+      LinkService linkService,
+      LinkStore links,
+      ClickRecorder clickRecorder,
+      Clock clock,
+      MeterRegistry metrics) {
     this.linkService = linkService;
     this.links = links;
     this.clickRecorder = clickRecorder;
     this.clock = clock;
+    this.metrics = metrics;
   }
 
   /**
@@ -117,15 +124,19 @@ class LinkController {
    * {@code 410 Gone} with a short plain-text body, no body for {@code HEAD}, and never reaches the
    * Click Recorder (spec 0004). The lookup stays a single query by primary key.
    */
-  @GetMapping("/{shortCode:[A-Za-z0-9]{7}}")
+  @GetMapping("/{short_code:[A-Za-z0-9]{7}}")
   void followLink(
-      @PathVariable String shortCode,
+      @PathVariable("short_code") String shortCode,
       HttpMethod method,
       @RequestHeader(name = HttpHeaders.REFERER, required = false) String referer,
       @RequestHeader(name = HttpHeaders.USER_AGENT, required = false) String userAgent,
       HttpServletResponse response)
       throws IOException {
     Optional<LinkStore.Destination> destination = links.findDestination(shortCode);
+    if (HttpMethod.GET.equals(method)) {
+      String outcome = destination.isPresent() ? "found" : "not_found";
+      metrics.counter("shortener.redirects", "outcome", outcome).increment();
+    }
     if (destination.isEmpty()) {
       response.setStatus(HttpStatus.NOT_FOUND.value());
       return;

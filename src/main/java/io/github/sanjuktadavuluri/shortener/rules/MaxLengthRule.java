@@ -11,6 +11,6 @@ public final class MaxLengthRule implements Rule {
   public RuleResult check(String longUrl) {
     return longUrl.length() <= MAX_LENGTH
         ? RuleResult.passed()
-        : RuleResult.rejected(REJECTION_REASON);
+        : RuleResult.rejected("max_length", REJECTION_REASON);
   }
 }

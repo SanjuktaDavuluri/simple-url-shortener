@@ -13,6 +13,6 @@ public final class WellFormedRule implements Rule {
   public RuleResult check(String longUrl) {
     return Urls.parse(longUrl).isPresent()
         ? RuleResult.passed()
-        : RuleResult.rejected(REJECTION_REASON);
+        : RuleResult.rejected("well_formed", REJECTION_REASON);
   }
 }
