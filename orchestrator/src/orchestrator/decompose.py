@@ -142,24 +142,26 @@ class Decided:
 
 
 class Publish:
-    """Creates the Issues, blockers first. Tickets already created are skipped: retries are safe."""
+    """Creates the Issues, blockers first. Retries are safe: an Issue is logged the moment it
+    exists, so it is never created twice, and its blockers and board entry are completed on a
+    retry until the ticket is logged as linked (#114)."""
 
     def __init__(self, ctx: RunContext) -> None:
         self.ctx = ctx
 
     def __call__(self, state: RunState) -> RunState:
         ctx = self.ctx
+        log = ctx.log.read()
         created = {
-            e["data"]["key"]: e["data"]["issue"]
-            for e in ctx.log.read()
-            if e["type"] == "ticket_created"
+            e["data"]["key"]: e["data"]["issue"] for e in log if e["type"] == "ticket_created"
         }
+        linked = {e["data"]["key"] for e in log if e["type"] == "ticket_linked"}
         release = roadmap_release(ctx.workspace, state.get("roadmap_item"))
         milestone = ctx.github.milestone_for_release(release) if release else None
         spec = state["spec"]
         spec_url = ctx.github.file_url(run_branch(ctx.run), spec["path"])
         for t in state["tickets"]:
-            if t["key"] in created:
+            if t["key"] in linked:
                 continue
             blockers = [created[b] for b in t.get("blocked_by", [])]
             body = (
@@ -170,13 +172,16 @@ class Publish:
                 + ("\n".join(f"- #{n}" for n in blockers) or "- None (can start immediately)")
                 + "\n"
             )
-            number = ctx.github.create_issue(t["title"], body, ("ready-for-agent",), milestone)
+            number = created.get(t["key"])
+            if number is None:
+                number = ctx.github.create_issue(t["title"], body, ("ready-for-agent",), milestone)
+                ctx.event("ticket_created", STAGE, {"key": t["key"], "issue": number})
+                created[t["key"]] = number
             for blocker in blockers:
                 ctx.github.add_blocked_by(number, blocker)
             release_field = {"Release": release} if release else {}
             ctx.github.add_to_board(number, {"Status": "Todo", **release_field, "Kind": t["kind"]})
-            ctx.event("ticket_created", STAGE, {"key": t["key"], "issue": number})
-            created[t["key"]] = number
+            ctx.event("ticket_linked", STAGE, {"key": t["key"], "issue": number})
         issues = {t["key"]: created[t["key"]] for t in state["tickets"]}
         ctx.event("tickets_published", STAGE, {"issues": issues, "milestone": milestone})
         ctx.mirror("Tickets published: " + ", ".join(f"#{n}" for n in issues.values()))

@@ -171,6 +171,10 @@ class GhCliGitHub:
         return int(url.rsplit("/", 1)[1])
 
     def add_blocked_by(self, issue: int, blocker: int) -> None:
+        """Idempotent: a blocker already recorded is left as it is, so retries are safe."""
+        existing = self._api(f"repos/{self.repo}/issues/{issue}/dependencies/blocked_by")
+        if any(i["number"] == blocker for i in existing):
+            return
         blocker_id = self._api(f"repos/{self.repo}/issues/{blocker}")["id"]
         self._gh(
             "api",
