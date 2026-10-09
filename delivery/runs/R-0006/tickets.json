@@ -1,0 +1,65 @@
+[
+  {
+    "key": "T1",
+    "title": "Generate OpenAPI definition for create Link, with regeneration command",
+    "kind": "Feature",
+    "what": "Add the springdoc OpenAPI starter compatible with Spring Boot 4.1.1 (check compatibility first), with runtime api-docs and UI disabled in the running service. Annotate POST /links (201 with manage_token shown once and Cache-Control: no-store, 400, 422, 503, optional expires_in_days Lifetime) with snake_case fields and fake examples (example.com, placeholder token). Scope the generator to the public JSON API so the web page and management port endpoints cannot leak in. Provide one documented regeneration command (script or Maven profile) that deterministically writes docs/api/openapi.yaml (YAML, pinned OpenAPI version, stable ordering, no timestamps/host/port, normalised newlines). Commit the file. This is the tracer: dependency, generation and committed output end to end for one operation. No behaviour change.",
+    "acceptance": [
+      "./mvnw verify passes with Spotless and Error Prone, and existing create integration tests pass unchanged",
+      "Running the regeneration command writes docs/api/openapi.yaml containing POST /links with 201, 400, 422 and 503 responses",
+      "The Manage Token is described as returned only by the create response, never in a URL, and unrecoverable if lost",
+      "Running regeneration twice gives byte-identical output with no timestamps or host/port",
+      "Examples contain only obviously fake values",
+      "Public port exposes no /v3/api-docs or documentation UI path"
+    ],
+    "blocked_by": []
+  },
+  {
+    "key": "T2",
+    "title": "Document Redirect and Stats operations with Bearer scheme and single 404",
+    "kind": "Feature",
+    "what": "Annotate GET /{short_code} (302 with Location header, 404 unknown Short Code, 410 Expired Link per ADR 0022) and GET /links/{short_code}/stats (200 with full stats body, a single shared 404 declared once) and add the HTTP Bearer security scheme for the Manage Token (ADR 0014) applied to the Stats operation only. The Stats 404 is documented as identical for missing/malformed header, empty token, unknown Short Code, Link without a token and wrong token, without suggesting the reasons differ. No real referrer, user agent or Long URL in examples (ADR 0013). Regenerate and commit docs/api/openapi.yaml. Mismatches with the intended contract found along the way are filed as bug tickets, not fixed.",
+    "acceptance": [
+      "docs/api/openapi.yaml contains exactly three operations: POST /links, GET /{short_code}, GET /links/{short_code}/stats",
+      "Redirect documents 302 with Location, 404 and 410",
+      "Stats documents the full 200 body and exactly one 404 response whose description covers all failure causes",
+      "Bearer scheme is declared and required on Stats only",
+      "Existing Redirect and Stats integration tests pass unchanged",
+      "Spotless and Error Prone pass"
+    ],
+    "blocked_by": [
+      "T1"
+    ]
+  },
+  {
+    "key": "T3",
+    "title": "Drift test and content checks for the OpenAPI definition",
+    "kind": "Test",
+    "what": "Add a *IT extending IntegrationTest (using the TestApps pattern to enable generation in its own instance) that generates the definition and compares it exactly with docs/api/openapi.yaml, giving a readable diff and a failure message naming the regeneration command. Add content checks: exactly three public operations (no /, /stats or actuator paths), Bearer scheme on Stats only, documented status codes present, no example matching a real-looking token, referrer or user agent. Add a check that the running service's public port exposes no API-docs or documentation UI path. Prove the drift test once by renaming a field, a status code or a security requirement, seeing it fail, regenerating and seeing it pass. Runs in ./mvnw verify so the existing required check covers it.",
+    "acceptance": [
+      "Drift test passes on an unchanged tree",
+      "Drift test fails when a field is renamed, a status is added or removed, or a security requirement changes, with a message naming the regeneration command (proof recorded in the PR)",
+      "Content checks assert exactly the three operations, Bearer on Stats only, and the documented status codes",
+      "Check confirms /v3/api-docs and the documentation UI paths are not served on the public port",
+      "No CI job is renamed and ./mvnw verify passes"
+    ],
+    "blocked_by": [
+      "T2"
+    ]
+  },
+  {
+    "key": "T4",
+    "title": "Document the OpenAPI definition in README, onboarding, test plan, roadmap and spec index",
+    "kind": "Docs",
+    "what": "Link docs/api/openapi.yaml and the regeneration step from the README and docs/onboarding.md. Add the drift and content rows to the matrix in docs/plans/0001-integration-testing.md. Update docs/roadmap.md R21 and the spec index in docs/specs/README.md (spec 0008 status). Add a CONTEXT.md term only if a new one was introduced.",
+    "acceptance": [
+      "README and docs/onboarding.md link to docs/api/openapi.yaml and name the regeneration command",
+      "docs/plans/0001-integration-testing.md matrix has the drift and content rows",
+      "docs/roadmap.md R21 and the spec index reflect the delivered state",
+      "All links resolve"
+    ],
+    "blocked_by": [
+      "T3"
+    ]
+  }
+]
