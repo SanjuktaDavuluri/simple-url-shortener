@@ -1,157 +1,51 @@
 [
   {
-    "key": "T1",
-    "kind": "Feature",
-    "title": "Creating a Link returns a Manage Token (JSON API)",
-    "what": "Tracer bullet for the create path. Add Flyway V4__add_manage_token_hash.sql (nullable manage_token_hash on links; V3 is spec 0004's). Add ManageTokenGenerator interface plus RandomManageTokenGenerator (32 SecureRandom bytes, unpadded base64url, 43 chars), ManageTokens (SHA-256 lower-case hex, constant-time compare via MessageDigest.isEqual, dummy-hash path) per ADR 0023. LinkService.create generates the token only after the Rule Set passes and saves its hash; LinkStore.save(shortCode, longUrl, manageTokenHash) replaces the old signature; Link carries manageToken in memory with toString that never prints it. POST /links adds manage_token and Cache-Control: no-store; 422/503 unchanged and carry no token. Test harness gets a scripted ManageTokenGenerator in the shared context and a helper that creates a Link and returns its token. Add LinkStore.findForStats(shortCode).",
+    "key": "S5-BROWSER",
+    "title": "Browser checks and Lighthouse for create-then-stats",
+    "kind": "Test",
+    "what": "Extend e2e/browser-checks.js (Playwright) with the create-then-stats journey: create a Link on the page, read the Manage Token from the result panel, follow 'See its stats' (Short Code pre-filled, no token), enter the token and see the Stats. Assert the token never appears in the page URL at any step, and that a wrong token shows the 404 message. Add /stats to the Lighthouse run (median of 3, score >= 90), and fix any accessibility or performance issue it finds.",
     "acceptance": [
-      "POST /links 201 contains manage_token equal to the scripted value, every existing field/status/error unchanged, and Cache-Control: no-store (stories 1, 2, 7)",
-      "Two Links get different tokens (story 5)",
-      "422 and 503 responses carry no token and existing Release 1 create tests pass unchanged",
-      "Database stores only the 64-char lower-case hex SHA-256 of the token, never the token (story 6); ManageTokens unit test checks a known digest, match, non-match and dummy-hash path",
-      "RandomManageTokenGenerator unit test: 43 base64url characters, no repeats over many draws",
-      "Link.toString does not contain the token",
-      "V4 applies to an empty database and to an R10 database with Links and Clicks; old Links keep Redirecting (story 26)",
-      "Redirect tests from Release 1 and spec 0003 pass unchanged (story 25)",
-      "Plan 0001 matrix gets the P9 phase, scripted-generator principle and rows for these stories; ./mvnw verify passes"
+      "Playwright check completes create, copy token, open stats link, submit token, see Stats",
+      "The page URL never contains the token at any step",
+      "A wrong token shows 'No stats found for that Short Code and manage token.'",
+      "Lighthouse on /stats scores >= 90 (median of 3)",
+      "CI job 'Browser checks (Playwright + Lighthouse)' passes with its name unchanged"
     ],
     "blocked_by": []
   },
   {
-    "key": "T2",
-    "kind": "Feature",
-    "title": "Stats JSON endpoint: token check, identity and headline counts",
-    "what": "First read path over Clicks. Add the stats package: LinkStatsService.statsFor(shortCode, presentedToken) returning Optional<LinkStats>, LinkStatsController for GET /links/{shortCode:[A-Za-z0-9]{7}}/stats parsing Authorization case-insensitively for Bearer. Check token first (using findForStats and ManageTokens, dummy hash when Link unknown or has no hash), touch the Click Store only after a match. Add ClickStore.summarise(shortCode, windowStart) in JdbcClickStore with GROUP BY queries inside one read transaction, initially returning counts by Agent Category and latest non-bot clicked_at. Response: short_code, short_url, long_url, created_at, generated_at (injected Clock), clicks (browser+other, all time), bot_clicks, last_click_at (non-bot, null if none), by_agent_category with all three keys. Every failure gives the identical 404 application/problem+json with Cache-Control: no-store. Other fields in the contract may be absent until T3/T4.",
-    "acceptance": [
-      "Right token returns 200 with identity fields, generated_at, clicks, bot_clicks, last_click_at and by_agent_category, with bots excluded from clicks and last_click_at (stories 8, 10, 15, 16, 18)",
-      "Clicks produced by real Redirects with chosen User-Agent, then Click Recorder flush(), then read over HTTP",
-      "Link with no Clicks gives zeros and null last_click_at, not an error (story 17); two Links' Stats stay separate",
-      "Unknown Short Code, Link inserted without a hash, no header, non-Bearer scheme, empty token, wrong token and another Link's token all return a 404 identical byte for byte (stories 19, 20, 26)",
-      "Responses, 200 and 404, carry Cache-Control: no-store (story 24)",
-      "LinkStatsService unit tests with stand-ins cover the 404 cases and that the Click Store is not touched without a match",
-      "Click Store summarise integration tests via saveAll with hand-built Clicks, including an empty result for an unknown Short Code",
-      "No raw User-Agent appears in the body; matrix and spec 0005 coverage rows updated; ./mvnw verify passes"
-    ],
-    "blocked_by": [
-      "T1"
-    ]
-  },
-  {
-    "key": "T5",
-    "kind": "Feature",
-    "title": "Web create result shows the Manage Token once",
-    "what": "The POST / result panel (PageController.shorten, fragments/shortener.html, app.css) shows the Manage Token in a read-only field with a copy button (reusing copy.js), the note 'Keep this safe: it's the only way to see this Link's stats, and it won't be shown again.', and a 'See its stats' link to /stats?short_code=<code> (never the token). Cache-Control: no-store on POST /. Works with HTMX and without JavaScript.",
-    "acceptance": [
-      "Create result shows the token, the note and the See its stats link with the Short Code only (stories 3, 4)",
-      "POST / response has Cache-Control: no-store (story 7)",
-      "HTMX and plain requests both render the token; existing WebPageIT and WebPageHtmxIT pass",
-      "No inline script or style is added",
-      "Matrix and spec 0005 coverage rows updated; ./mvnw verify passes"
-    ],
-    "blocked_by": [
-      "T1"
-    ]
-  },
-  {
-    "key": "T3",
-    "kind": "Feature",
-    "title": "Stats breakdowns: Device Class and top Referrer Hosts",
-    "what": "Extend ClickStore.summarise and LinkStats with, over non-bot Clicks only: by_device_class (desktop and mobile keys always present), top_referrer_hosts (max 10, count descending then host ascending) and no_referrer_host. Computed with GROUP BY in the same read transaction as T2.",
-    "acceptance": [
-      "by_device_class has both keys and sums to clicks; bot Clicks excluded (story 13)",
-      "top_referrer_hosts is cut at 10 with ordering by clicks desc then host asc, and no_referrer_host counts non-bot Clicks without a Referrer Host (story 14)",
-      "Click Store seam test checks counts, top-10 cut and tie-break with hand-built Clicks",
-      "HTTP test with real Redirects and chosen Referer headers; body contains no raw Referer or full referrer URL (story 23)",
-      "Matrix and spec 0005 coverage rows updated; ./mvnw verify passes"
-    ],
-    "blocked_by": [
-      "T2"
-    ]
-  },
-  {
-    "key": "T4",
-    "kind": "Feature",
-    "title": "Stats clicks per day over a 30-day UTC window",
-    "what": "Extend summarise and LinkStatsService with clicks_per_day: exactly 30 entries, today in UTC and the 29 days before, oldest first, zero-filled, non-bot Clicks only, window built from the injected Clock. clicks stays all time.",
-    "acceptance": [
-      "clicks_per_day has 30 entries ending today (UTC) with zero-filled days (story 11)",
-      "A Click 29 days ago is in the series; one 30 days ago is out of the series but still counted in clicks",
-      "UTC day boundary cases in LinkStatsService unit tests with a fixed clock",
-      "Click Store seam test checks the window start",
-      "Matrix and spec 0005 coverage rows updated; ./mvnw verify passes"
-    ],
-    "blocked_by": [
-      "T2"
-    ]
-  },
-  {
-    "key": "T6",
-    "kind": "Feature",
-    "title": "Web Link stats page at /stats",
-    "what": "Add StatsPageController and templates (index and fragments/stats). GET /stats[?short_code=] renders the form pre-filling only the Short Code; POST /stats (form-encoded short_code, manage_token) renders the Stats via LinkStatsService, or 404 with 'No stats found for that Short Code and manage token.' The Short Code field accepts a bare code or a Short URL starting with the Base URL (code taken from the end). HTMX requests get only the fragment; htmx responseHandling swaps 404 for the form. Clicks per day as an accessible table with CSS-only bars; token field type=password autocomplete=off; a note that counts may lag a little; Cache-Control: no-store on all responses.",
-    "acceptance": [
-      "POST /stats with a good token renders the Stats; any failure gives 404 and the message (stories 9, 19, 20)",
-      "A Short URL in the Short Code field works",
-      "HTMX requests get the fragment and plain requests the full page, working without JavaScript (ADR 0006)",
-      "GET /stats?manage_token=... never uses the token (story 21)",
-      "Page notes possible lag (story 18); no inline script or style",
-      "Responses carry Cache-Control: no-store",
-      "Matrix and spec 0005 coverage rows updated; ./mvnw verify passes"
-    ],
-    "blocked_by": [
-      "T2",
-      "T3",
-      "T4",
-      "T5"
-    ]
-  },
-  {
-    "key": "T7",
+    "key": "S5-PRIVACY",
+    "title": "Privacy and log-safety tests for Stats and the Manage Token",
     "kind": "Test",
-    "title": "Privacy and log-safety tests for the Manage Token",
-    "what": "Add integration tests with OutputCaptureExtension covering create, Stats success and 404 over both the JSON API and the web page, proving the token, Authorization header, manage_token form field and hash never appear in logs, URLs or error messages. Assert Stats bodies contain no IP, raw User-Agent or full Referer.",
+    "what": "Add integration tests (OutputCaptureExtension) proving the Manage Token and Authorization header never appear in log output across create, Stats success and the 404, and that the Stats body holds none of the raw Referer or User-Agent values sent. Also assert the identical-404 contract (unknown Short Code, pre-R2 Link without a hash, missing or non-Bearer or empty header, wrong token, another Link's token) is byte-for-byte equal, Cache-Control no-store on token-bearing and Stats responses, and that Link.toString omits the token. Only add production changes if a test finds a real leak. Do not re-implement shipped features.",
     "acceptance": [
-      "No captured log output contains the token or its hash across create, Stats 200 and 404 (story 21)",
-      "Stats body contains none of the raw Referer or User-Agent values sent (story 23)",
-      "Error messages never include the token",
-      "Matrix and spec 0005 coverage rows updated; ./mvnw verify passes"
+      "A log-capture test covers create, Stats 200 and Stats 404 and finds no token, hash or Authorization value",
+      "A test sends distinct Referer and User-Agent values and asserts the Stats body contains neither",
+      "All 404 cases are compared against the first case: status line, headers and body are equal",
+      "POST /links, POST / and every Stats response carry Cache-Control: no-store",
+      "Link.toString does not include the Manage Token",
+      "GET /stats?manage_token=... never uses the token from the query string",
+      "Plan 0001 matrix rows and the spec 0005 coverage entries for stories 7, 19-24 are added",
+      "./mvnw verify passes"
     ],
-    "blocked_by": [
-      "T6"
-    ]
+    "blocked_by": []
   },
   {
-    "key": "T8",
-    "kind": "Test",
-    "title": "Browser checks and Lighthouse for create-then-stats",
-    "what": "In e2e/ (Playwright): create a Link on the page, copy the token, follow 'See its stats', enter the token, see the Stats. Assert the token is never in the page URL at any point. Add Lighthouse for /stats (median of 3, score at least 90).",
-    "acceptance": [
-      "Playwright flow create, copy token, open stats, submit token, see Stats passes",
-      "Token never appears in any page URL",
-      "Lighthouse on /stats scores 90 or more (median of 3), and the existing page scores stay green",
-      "The 'Browser checks (Playwright + Lighthouse)' CI job name is unchanged"
-    ],
-    "blocked_by": [
-      "T6"
-    ]
-  },
-  {
-    "key": "T9",
+    "key": "S5-DOCS",
+    "title": "Document Stats: architecture, glossary, onboarding, README, roadmap, plan",
     "kind": "Docs",
-    "title": "Document Stats: glossary, architecture, onboarding, plan and index",
-    "what": "Update docs for spec 0005: CONTEXT.md (Manage Token, Stats, Headline Click count), docs/architecture.md (create flow with token, Stats flow), docs/onboarding.md (try Stats locally), plan 0001 final P9 matrix and spec 0005 coverage table, README, docs/specs/README.md index and status, R2 row in docs/roadmap.md. Fix ADR 0023's reference to V3__add_manage_token_hash.sql to V4 (V3 is expiring Links) as a clarifying note. Spec status moves in-progress to implemented when the last ticket merges.",
+    "what": "Bring the documents up to date with the shipped Stats feature: the Stats flow and token-bearing create flow in docs/architecture.md; Manage Token, Stats and Headline Click count in CONTEXT.md; how to try Stats locally in docs/onboarding.md; README and the spec index and R2 row of docs/roadmap.md; and phase P9 in docs/plans/0001-integration-testing.md with a complete spec 0005 coverage table mapping each user story to its test, including the privacy and browser tickets. Check the spec status is consistent (implemented). Do not touch the release close-out items.",
     "acceptance": [
-      "CONTEXT.md defines Manage Token, Stats and Headline Click count with the avoid-lists",
-      "architecture.md shows the create and Stats flows in Mermaid",
-      "onboarding.md explains trying Stats locally (using PORT=8765 and a scratch DATA_DIR)",
-      "Every user story 1-29 maps to a test in the plan 0001 coverage table",
-      "README, spec index and roadmap R2 row updated; ADR 0023 migration number corrected",
-      "Links in the docs resolve"
+      "docs/architecture.md shows the create-with-token and Stats flows in Mermaid",
+      "CONTEXT.md defines Manage Token, Stats and Headline Click count using the spec's wording",
+      "docs/onboarding.md explains creating a Link and reading its Stats locally using PORT=8765 and a scratch DATA_DIR",
+      "README, docs/specs/README.md and the R2 row of docs/roadmap.md reflect Stats",
+      "Plan 0001 has P9 and every user story 1-29 maps to a test or document",
+      "No dead links in the edited files"
     ],
     "blocked_by": [
-      "T6",
-      "T7",
-      "T8"
+      "S5-PRIVACY",
+      "S5-BROWSER"
     ]
   }
 ]
