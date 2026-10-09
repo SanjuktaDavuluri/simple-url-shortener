@@ -21,10 +21,10 @@ import org.springframework.stereotype.Component;
  * configured today; any future secret setting must be left out of it.
  *
  * <p>When the context starts closing, Readiness goes {@code REFUSING_TRAFFIC} ({@code
- * OUT_OF_SERVICE} on the management port) and {@code Shutdown started} is logged, before the
- * public server stops. This component also stops in a phase below the Click Recorder's, so {@code
- * Shutdown complete} follows the flush and carries the Clicks flushed and dropped by it (ADR
- * 0012), and comes before the database pool closes.
+ * OUT_OF_SERVICE} on the management port) and {@code Shutdown started} is logged, before the public
+ * server stops. This component also stops in a phase below the Click Recorder's, so {@code Shutdown
+ * complete} follows the flush and carries the Clicks flushed and dropped by it (ADR 0012), and
+ * comes before the database pool closes.
  */
 @Component
 class OperationsLogging implements SmartLifecycle {
@@ -34,19 +34,14 @@ class OperationsLogging implements SmartLifecycle {
   private final ApplicationContext context;
   private final Environment environment;
   private final ShortenerProperties properties;
-  private final QueuedClickRecorder recorder;
 
   private volatile boolean running;
 
   OperationsLogging(
-      ApplicationContext context,
-      Environment environment,
-      ShortenerProperties properties,
-      QueuedClickRecorder recorder) {
+      ApplicationContext context, Environment environment, ShortenerProperties properties) {
     this.context = context;
     this.environment = environment;
     this.properties = properties;
-    this.recorder = recorder;
   }
 
   @EventListener
@@ -91,11 +86,19 @@ class OperationsLogging implements SmartLifecycle {
   @Override
   public void stop() {
     running = false;
-    StopCounts counts = recorder.lastStop();
+    StopCounts counts = recorder().lastStop();
     log.atInfo()
         .addKeyValue("clicks_flushed", counts.flushed())
         .addKeyValue("clicks_dropped", counts.dropped())
         .log("Shutdown complete");
+  }
+
+  /**
+   * Looked up when needed, never injected: a bean that depends on the recorder is stopped before
+   * it, and this one must stop after it.
+   */
+  private QueuedClickRecorder recorder() {
+    return context.getBean(QueuedClickRecorder.class);
   }
 
   @Override
@@ -106,6 +109,6 @@ class OperationsLogging implements SmartLifecycle {
   /** One below the Click Recorder's phase: it stops after the recorder, before the pool closes. */
   @Override
   public int getPhase() {
-    return recorder.getPhase() - 1;
+    return recorder().getPhase() - 1;
   }
 }

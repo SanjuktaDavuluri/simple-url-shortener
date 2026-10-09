@@ -89,7 +89,7 @@ class DomainMetricsIT extends IntegrationTest {
 
     String body = scrape();
 
-    assertThat(body).contains("http_server_requests_seconds", "uri=\"/{shortCode:");
+    assertThat(body).contains("http_server_requests_seconds", "uri=\"/{short_code:");
     assertThat(body).contains("jvm_memory_used_bytes", "hikaricp_connections");
   }
 
