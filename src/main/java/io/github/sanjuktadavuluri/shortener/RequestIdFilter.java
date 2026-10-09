@@ -13,8 +13,8 @@ import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
-import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.servlet.HandlerMapping;
 
 /**
  * Gives every public request its Request ID (spec 0006, ADR 0015): the identifier a client or a

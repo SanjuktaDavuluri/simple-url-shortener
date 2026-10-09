@@ -7,8 +7,8 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 
 /**
- * Turns {@code LOG_FORMAT} into Spring Boot's console logging format (spec 0006, ADR 0015):
- * {@code json} (the default) is the built-in structured ECS format, {@code text} is Spring's plain
+ * Turns {@code LOG_FORMAT} into Spring Boot's console logging format (spec 0006, ADR 0015): {@code
+ * json} (the default) is the built-in structured ECS format, {@code text} is Spring's plain
  * pattern. Anything else stops startup with a message naming {@code LOG_FORMAT}, so a typo can't
  * silently change what the operator's log pipeline receives.
  *

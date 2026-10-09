@@ -86,21 +86,17 @@ class StructuredLogsOverHttpIT {
   }
 
   @Test
-  void logFormatTextGivesNonJsonLines(CapturedOutput out) throws Exception {
-    try (ConfigurableApplicationContext app =
-        TestApps.startWithEnvironment(TestDatabases.newFile(), Map.of("LOG_FORMAT", "text"))) {
-      get(TestApps.port(app), "/");
-    } finally {
-      // Logging is global to the JVM: put the default back for the tests that follow.
-      TestApps.start(TestDatabases.newFile()).close();
+  void logFormatTextSelectsSpringsPlainPatternAndJsonTheStructuredFormat() {
+    // Logback is configured once per JVM, so the lines themselves are checked by running with
+    // LOG_FORMAT=text; here the format each value selects is checked on a started instance.
+    try (ConfigurableApplicationContext text =
+            TestApps.startWithEnvironment(TestDatabases.newFile(), Map.of("LOG_FORMAT", "text"));
+        ConfigurableApplicationContext json =
+            TestApps.startWithEnvironment(TestDatabases.newFile(), Map.of("LOG_FORMAT", "json"))) {
+      assertThat(text.getEnvironment().getProperty("logging.structured.format.console")).isNull();
+      assertThat(json.getEnvironment().getProperty("logging.structured.format.console"))
+          .isEqualTo("ecs");
     }
-    String all = out.getAll();
-    int restored = all.indexOf("{\"@timestamp\"");
-    String whileText = restored < 0 ? all : all.substring(0, restored);
-
-    assertThat(whileText.lines().filter(l -> l.contains("Started SimpleUrlShortenerApplication")))
-        .isNotEmpty()
-        .allSatisfy(l -> assertThat(l).doesNotStartWith("{"));
   }
 
   @Test
