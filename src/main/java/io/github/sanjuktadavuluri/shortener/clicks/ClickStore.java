@@ -18,7 +18,8 @@ public interface ClickStore {
   /**
    * Returns the Click Summary of the Link with this Short Code, every number read from the same
    * snapshot; an empty summary if it has no stored Clicks (spec 0005). {@code windowStart} is the
-   * start of the Stats' 30-day window, the first UTC day the per-day counts cover.
+   * start of the Stats' 30-day window, the first UTC day the per-day counts cover; Clicks before it
+   * still count everywhere else. Bot Clicks count only in the Agent Category split (ADR 0013).
    */
   ClickSummary summarise(String shortCode, Instant windowStart);
 }

@@ -2,10 +2,12 @@ package io.github.sanjuktadavuluri.shortener.stats;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.github.sanjuktadavuluri.shortener.clicks.AgentCategory;
+import io.github.sanjuktadavuluri.shortener.clicks.DeviceClass;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -95,7 +97,11 @@ class LinkStatsController {
       @JsonProperty("clicks") long clicks,
       @JsonProperty("bot_clicks") long botClicks,
       @JsonProperty("last_click_at") String lastClickAt,
-      @JsonProperty("by_agent_category") AgentCategories byAgentCategory) {
+      @JsonProperty("clicks_per_day") List<Day> clicksPerDay,
+      @JsonProperty("by_agent_category") AgentCategories byAgentCategory,
+      @JsonProperty("by_device_class") DeviceClasses byDeviceClass,
+      @JsonProperty("top_referrer_hosts") List<ReferrerHost> topReferrerHosts,
+      @JsonProperty("no_referrer_host") long noReferrerHost) {
 
     static StatsBody of(LinkStats stats) {
       return new StatsBody(
@@ -107,15 +113,34 @@ class LinkStatsController {
           stats.headlineClicks(),
           stats.botClicks(),
           stats.lastClickAt().map(LinkStatsController::time).orElse(null),
+          stats.clicksPerDay().stream()
+              .map(day -> new Day(day.date().toString(), day.clicks()))
+              .toList(),
           new AgentCategories(
               stats.byAgentCategory().get(AgentCategory.BROWSER),
               stats.byAgentCategory().get(AgentCategory.OTHER),
-              stats.byAgentCategory().get(AgentCategory.BOT)));
+              stats.byAgentCategory().get(AgentCategory.BOT)),
+          new DeviceClasses(
+              stats.byDeviceClass().get(DeviceClass.DESKTOP),
+              stats.byDeviceClass().get(DeviceClass.MOBILE)),
+          stats.topReferrerHosts().stream()
+              .map(host -> new ReferrerHost(host.host(), host.clicks()))
+              .toList(),
+          stats.noReferrerHost());
     }
   }
 
+  /** One UTC date ({@code yyyy-MM-dd}) and its non-bot Clicks. */
+  record Day(String date, long clicks) {}
+
   /** Every Agent Category, always present. */
   record AgentCategories(long browser, long other, long bot) {}
+
+  /** Both Device Classes, always present; non-bot Clicks. */
+  record DeviceClasses(long desktop, long mobile) {}
+
+  /** A Referrer Host and its non-bot Clicks. */
+  record ReferrerHost(String host, long clicks) {}
 
   private static String time(Instant instant) {
     return TIME.format(instant);
