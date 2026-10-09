@@ -118,6 +118,15 @@ class QueuedClickRecorderTest {
     assertThat(store.batches()).containsExactly(clicks);
   }
 
+  // Issue #116 (spec 0006, Click queue health indicator): the capacity readiness compares with.
+
+  @Test
+  void theRecorderReportsItsConfiguredQueueCapacity() {
+    recorder = unstartedRecorder(250, LONG_FLUSH_INTERVAL);
+
+    assertThat(recorder.queueCapacity()).isEqualTo(250);
+  }
+
   @Test
   void clicksArrivingWhileTheQueueIsFullAreDroppedAndCounted() {
     recorder = unstartedRecorder(2, LONG_FLUSH_INTERVAL);

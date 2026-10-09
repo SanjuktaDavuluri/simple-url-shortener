@@ -83,8 +83,7 @@ class RequestIdOverHttpIT {
   @Test
   @EnabledIf("actuatorIsPresent")
   void healthAndMetricsOnTheManagementPortCarryNoRequestId() throws Exception {
-    try (ConfigurableApplicationContext app =
-        TestApps.start(TestDatabases.newFile(), "--management.server.port=0")) {
+    try (ConfigurableApplicationContext app = TestApps.start(TestDatabases.newFile())) {
       int managementPort =
           Integer.parseInt(app.getEnvironment().getRequiredProperty("local.management.port"));
       assertThat(managementPort).isNotEqualTo(TestApps.port(app));

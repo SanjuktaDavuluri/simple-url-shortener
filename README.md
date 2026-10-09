@@ -196,6 +196,12 @@ curl -s -X POST localhost:8000/links -H 'content-type: application/json' \
 curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"url": "ftp://example.com"}'
 # 422 {"detail":"Only http:// and https:// web addresses can be shortened.",
 #      "instance":"/links","status":422,"title":"Unprocessable Content"}
+
+curl -s localhost:8081/actuator/health/liveness    # 200 {"status":"UP","components":{"livenessState":{"status":"UP"}}}
+curl -s localhost:8081/actuator/health/readiness   # 200 UP with db, clickQueue and readinessState; 503 while the database
+                                                    # is unreachable or the Click queue is full
+curl -s localhost:8081/actuator/prometheus         # metrics in Prometheus text
+curl -si localhost:8000/actuator/health            # 404: no Actuator path exists on the public port
 ```
 
 | Setting | Default | Purpose |
@@ -203,6 +209,7 @@ curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"u
 | `BASE_URL` | `http://localhost:8000` | The shortener's public address; every Short URL starts with it |
 | `DATABASE_PATH` | `links.db` | Where the SQLite database file lives (schema created by Flyway on startup). It runs in WAL mode, so `links.db-wal` and `links.db-shm` sit beside it: back up, move or delete the three together, and keep them on a local disk ([onboarding](docs/onboarding.md), ADR 0021) |
 | `PORT` | `8000` | HTTP port |
+| `MANAGEMENT_PORT` | `8081` | Management port for health checks and metrics, never the public port; only `/actuator/health` (Liveness, Readiness) and `/actuator/prometheus` are exposed (ADR 0015, spec 0006). A second local instance needs its own value as well as its own `PORT` |
 | `CLICK_QUEUE_CAPACITY` | `10000` | Most Clicks waiting to be saved; any more are dropped and counted (ADR 0012) |
 | `CLICK_BATCH_SIZE` | `500` | Most Clicks saved in one batch |
 | `CLICK_FLUSH_INTERVAL` | `1s` | Longest the background writer waits for a batch to fill before it saves what it has; also the shortest gap between two dropped-Click warnings |
