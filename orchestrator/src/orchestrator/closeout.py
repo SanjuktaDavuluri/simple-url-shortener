@@ -222,14 +222,17 @@ class CloseOut:
         commit_all(
             tree, f"docs: close out {ctx.run}: report, Event Log, spec implemented (#{ctx.issue})"
         )
-        push(tree, branch)
+        sha = push(tree, branch)
         pr = ctx.github.create_pr(
             branch,
             "main",
             f"docs: close out {ctx.run} (#{ctx.issue})",
+            f"Closes #{ctx.issue}\n\n"
             f"Run {ctx.run} for #{ctx.issue} is finished. This commits its report and Event Log "
             f"under `delivery/runs/{ctx.run}/`, regenerates `delivery/metrics.md` and marks the "
             "spec implemented.",
         )
+        # After the committed copy, whose last event is run_finished; the local log keeps it.
+        ctx.event("pr_opened", "close_out", {"lane": "close_out", "pr": pr, "sha": sha})
         ctx.mirror(f"🏁 Run finished. Close-out PR #{pr}: report, Event Log and spec status.")
         return {"close_out_pr": pr}

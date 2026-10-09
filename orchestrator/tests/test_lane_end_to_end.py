@@ -313,6 +313,9 @@ def test_after_the_merge_the_run_closes_out_with_its_report_and_event_log(
     assert code == 0, out
     close_out = github.pr(github.pr_for_head("docs/run-R-0001-close-out"))
     assert close_out.base == "main" and "R-0001" in close_out.title
+    assert "Closes #42" in close_out.body  # merging it closes the Run's Issue (#79)
+    opened = [e["data"] for e in of_type(repo, "pr_opened")]
+    assert {"lane": "close_out", "pr": close_out.number, "sha": opened[-1]["sha"]} == opened[-1]
     branch = close_out.head
     committed = on_remote(repo, branch, "delivery/runs/R-0001/events.jsonl").splitlines()
     assert json.loads(committed[-1])["type"] == "run_finished"
