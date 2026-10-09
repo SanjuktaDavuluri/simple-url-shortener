@@ -90,6 +90,14 @@ _Avoid_: User agent, browser type, client type
 Whether a Click came from a `mobile` or a `desktop` device, reduced from its user agent. Anything without a mobile marker, including bots and a missing user agent, is `desktop`.
 _Avoid_: Device, platform, form factor
 
+**Stats**:
+The aggregated view of one Link's stored Clicks, readable only with its Manage Token. Anyone without it gets the same `404` as for an unknown Short Code (ADR 0014). They report counts, never single Clicks, and can trail the latest Redirects by about one flush of the Click Recorder (ADR 0012). An Expired Link keeps its Stats.
+_Avoid_: Analytics, metrics, report, dashboard
+
+**Headline Click count**:
+A Link's non-bot Clicks (Agent Category `browser` plus `other`), all time. Bot Clicks are counted on their own and never in the headline (ADR 0013).
+_Avoid_: Hits, views, visits, total clicks
+
 ### Delivery
 
 These terms belong to the delivery plane: how changes to the shortener are made, not what the shortener does.

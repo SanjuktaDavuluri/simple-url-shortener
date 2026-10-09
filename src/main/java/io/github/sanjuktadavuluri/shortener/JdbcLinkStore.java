@@ -69,4 +69,20 @@ class JdbcLinkStore implements LinkStore {
                     Optional.ofNullable(row.getString("expires_at")).map(Instant::parse)))
         .optional();
   }
+
+  @Override
+  public Optional<StoredLink> findForStats(String shortCode) {
+    return jdbc.sql(
+            "SELECT short_code, long_url, created_at, manage_token_hash FROM links"
+                + " WHERE short_code = :shortCode")
+        .param("shortCode", shortCode)
+        .query(
+            (row, rowNumber) ->
+                new StoredLink(
+                    row.getString("short_code"),
+                    row.getString("long_url"),
+                    Instant.parse(row.getString("created_at")),
+                    Optional.ofNullable(row.getString("manage_token_hash"))))
+        .optional();
+  }
 }
