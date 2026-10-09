@@ -111,13 +111,22 @@ const isThirtyDaysOn = (line, createdAt) => {
   await page.click('button[type=submit]');
   await page.locator('[data-short-url]').waitFor();
   const statsToken = await page.inputValue('input[data-manage-token]');
+  const statsCopy = page.locator('.manage-token button[data-copy]');
+  await statsCopy.waitFor({ state: 'visible', timeout: 2000 });
+  await statsCopy.click();
+  await page.waitForFunction(() => document.querySelector('.manage-token button[data-copy]').textContent.includes('Copied'));
+  const copiedStatsToken = await page.evaluate(() => navigator.clipboard.readText());
+  check('Stats journey: copied token is the Manage Token', copiedStatsToken === statsToken);
+  check('Stats journey: token not in the URL after create', !page.url().includes(statsToken), page.url());
   const statsLink = page.locator('a[data-stats-link]');
   const statsHref = await statsLink.getAttribute('href');
   check('See its stats link carries the Short Code only', /^\/stats\?short_code=[A-Za-z0-9]{7}$/.test(statsHref) && !statsHref.includes(statsToken), statsHref);
   await Promise.all([page.waitForNavigation(), statsLink.click()]);
   check('Stats page: Short Code pre-filled', (await page.inputValue('input[name=short_code]')).length === 7);
+  check('Stats page: token field empty on arrival', (await page.inputValue('input[name=manage_token]')) === '');
+  check('Stats page: token not in the URL on arrival', !page.url().includes(statsToken), page.url());
   check('Stats page: token field is a password field', await page.getAttribute('input[name=manage_token]', 'type') === 'password');
-  await page.fill('input[name=manage_token]', statsToken);
+  await page.fill('input[name=manage_token]', copiedStatsToken);
   await page.click('#stats button[type=submit]');
   await page.locator('#stats-clicks').waitFor();
   check('Stats page: the Stats appear', (await page.textContent('#stats-clicks')).trim() === '0');
@@ -129,6 +138,7 @@ const isThirtyDaysOn = (line, createdAt) => {
   await page.click('#stats button[type=submit]');
   await page.locator('#stats-error').waitFor();
   check('Stats page: a wrong token shows the not-found message via HTMX', (await page.textContent('#stats-error')) === 'No stats found for that Short Code and manage token.');
+  check('Stats page: token not in the URL after a wrong token', !page.url().includes(statsToken), page.url());
   check('Stats page: token in no requested URL', requestedUrls.every(u => !u.includes(statsToken)));
 
   // --- JavaScript off: plain HTML path ---
