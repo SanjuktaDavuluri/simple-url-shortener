@@ -10,6 +10,6 @@ public final class HostPresentRule implements Rule {
   @Override
   public RuleResult check(String longUrl) {
     boolean hasHost = Urls.parse(longUrl).map(URI::getHost).isPresent();
-    return hasHost ? RuleResult.passed() : RuleResult.rejected(REJECTION_REASON);
+    return hasHost ? RuleResult.passed() : RuleResult.rejected("host_present", REJECTION_REASON);
   }
 }

@@ -24,7 +24,7 @@ public final class SelfLinkRule implements Rule {
   @Override
   public RuleResult check(String longUrl) {
     boolean isSelfLink = Urls.parse(longUrl).map(this::pointsAtTheShortener).orElse(false);
-    return isSelfLink ? RuleResult.rejected(REJECTION_REASON) : RuleResult.passed();
+    return isSelfLink ? RuleResult.rejected("self_link", REJECTION_REASON) : RuleResult.passed();
   }
 
   private boolean pointsAtTheShortener(URI longUrl) {
