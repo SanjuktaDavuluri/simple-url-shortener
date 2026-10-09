@@ -381,6 +381,14 @@ Every user story in [spec 0005](../specs/0005-click-stats-per-link.md) and the t
 | 28 | An API contract for the new endpoint and the changed create response | Document: spec 0005, *API Contract* |
 | 29 | Each criterion traced to a test | This plan: the #104, #105, #106 and #107 rows above and this table |
 
+### Spec 0006 coverage (runbook ticket, #123)
+
+| Story | Claim | Proven by |
+|---|---|---|
+| 18, 29, 30 | Every environment variable in `application.properties` is in the runbook's configuration table, so the reference can't drift | `ConfigurationReferenceTest` → `everyEnvironmentVariableInApplicationPropertiesIsInTheRunbooksConfigurationTable`, `placeholderNamesAreCollectedFromEveryLine`. Shown red by adding an undocumented `${NAME:` placeholder |
+| 18, 36, 39–41 | The runbook has start, check, diagnose, stop, configuration, metrics, data files, logging and exposure sections; every spec metric with name, type, tags and meaning; the stop bound | Document: `docs/runbook.md` |
+| 42, 43 | Impact analysis; each criterion traced to a test | Document: spec 0006 *Impact Analysis*; this table. The other spec 0006 stories are traced by their own tickets' rows (#116 onward) |
+
 ## 6. Entry and exit criteria
 
 - **Entry (per ticket):** the ticket's acceptance criteria are listed in this plan's matrix before implementation starts.

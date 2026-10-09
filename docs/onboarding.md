@@ -65,16 +65,7 @@ An Expired Link records no Click, and `HEAD` gets the same `410` without a body.
 
 To run a second, throwaway copy next to it, give it its own port and data directory: `PORT=8765 DATA_DIR=/tmp/shortener-scratch scripts/local.sh start`. The same pattern keeps automated runs away from your service.
 
-| Setting | Default | Purpose |
-|---|---|---|
-| `BASE_URL` | `http://localhost:8000` | The public address; every Short URL starts with it |
-| `LOG_FORMAT` | `json` | Console log format: `json` (one ECS JSON object per line, with the `request_id`) or `text`; anything else stops startup |
-| `DATABASE_PATH` | `links.db` | The SQLite database file (schema created by Flyway on startup) |
-| `PORT` | `8000` | HTTP port |
-| `CLICK_QUEUE_CAPACITY` | `10000` | Most Clicks waiting in the Click Recorder's queue; a Click that arrives when it is full is dropped and counted ([ADR 0012](adr/0012-clicks-recorded-asynchronously.md)) |
-| `CLICK_BATCH_SIZE` | `500` | Most Clicks the background writer saves in one batch (one Click Store call, one transaction) |
-| `CLICK_FLUSH_INTERVAL` | `1s` | Longest the writer waits for a batch to fill before saving what it has, so a Click is stored about this long after its Redirect; also the shortest gap between two dropped-Click warnings |
-| `CLICK_SHUTDOWN_TIMEOUT` | `10s` | Longest a normal shutdown waits, after the web server stops, for queued Clicks to be saved; any still unsaved are dropped, counted and logged. Shutdown can take up to this long |
+Every environment variable, its default and meaning is in the [runbook's configuration reference](runbook.md#configuration-reference). It also covers starting, checking, diagnosing and stopping the service.
 
 The `CLICK_*` settings are optional and bind to `shortener.clicks.*` in `application.properties` ([spec 0003](specs/0003-clickstream.md)). In tests, `IntegrationTest.storedClicks(shortCode)` flushes the Click Recorder and lists through the Click Store, so tests never sleep waiting for a batch.
 
