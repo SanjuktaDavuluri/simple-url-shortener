@@ -34,8 +34,8 @@ jobs:
             target/surefire-reports/
             target/failsafe-reports/
   container:
-      # Not a required check (spec 0007). Builds the image and tests the running container; never
-      # pushes or deploys it (ADR 0007).
+      # Not a required check (spec 0007). Builds the image and tests the running container; the
+      # image stays local and is never published (ADR 0007).
       name: Container (image build + container tests)
       runs-on: ubuntu-latest
       env:
