@@ -69,7 +69,7 @@ class ClickShutdownIT {
     return lifecycle.getClass().getName().startsWith("org.springframework.boot.web.server.");
   }
 
-  private static String createLink(ConfigurableApplicationContext app, String longUrl) {
+  static String createLink(ConfigurableApplicationContext app, String longUrl) {
     byte[] body =
         TestApps.mvc(app)
             .post()
