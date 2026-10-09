@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/* The Stats form and, below it, the Stats or the one not-found message (spec 0005, ADR 0006).
+       The full page and HTMX responses render this same fragment. The token field is a password
+       field with no pre-fill: the token is only ever posted, never put in a URL. */-->
+<section id="stats" class="card" th:fragment="stats" aria-labelledby="stats-heading">
+  <h2 id="stats-heading">Read a link's stats</h2>
+
+  <form method="post" action="/stats" novalidate
+        hx-post="/stats" hx-target="#stats" hx-swap="outerHTML">
+    <div class="field">
+      <label for="short_code">Short Code or Short URL</label>
+      <input id="short_code" name="short_code" type="text" autocomplete="off"
+             spellcheck="false" autocapitalize="off" th:value="${shortCode}">
+    </div>
+    <div class="field">
+      <label for="manage_token">Manage Token</label>
+      <input id="manage_token" name="manage_token" type="password" autocomplete="off"
+             spellcheck="false" autocapitalize="off">
+    </div>
+    <p id="stats-error" class="field-error" role="alert" th:if="${notFound != null}"
+       th:text="${notFound}">Not found</p>
+    <button type="submit">Show stats</button>
+  </form>
+
+  <div class="stats-result" aria-live="polite" th:if="${stats != null}">
+    <h3>Link</h3>
+    <p><a th:href="${stats.shortUrl()}" th:text="${stats.shortUrl()}">Short URL</a>
+      points to <span class="long-url" th:text="${stats.longUrl()}">Long URL</span></p>
+    <dl class="stats-figures">
+      <div><dt>Clicks</dt><dd id="stats-clicks" th:text="${stats.headlineClicks()}">0</dd></div>
+      <div><dt>Bot clicks</dt><dd id="stats-bot-clicks" th:text="${stats.botClicks()}">0</dd></div>
+      <div><dt>Last click (UTC)</dt>
+        <dd id="stats-last-click" th:text="${lastClick != null} ? ${lastClick} : 'None yet'">None yet</dd></div>
+    </dl>
+    <p id="stats-lag" class="hint">Counts may lag a little: clicks are saved shortly after the redirect. Stats as of <span th:text="|${generatedAt} UTC|">now</span>.</p>
+
+    <h3>Agent Category</h3>
+    <ul id="stats-agents">
+      <li>Browser: <span th:text="${browser}">0</span></li>
+      <li>Other: <span th:text="${other}">0</span></li>
+      <li>Bot: <span th:text="${stats.botClicks()}">0</span></li>
+    </ul>
+
+    <h3>Device Class</h3>
+    <ul id="stats-devices">
+      <li>Desktop: <span th:text="${desktop}">0</span></li>
+      <li>Mobile: <span th:text="${mobile}">0</span></li>
+    </ul>
+
+    <h3>Top Referrer Hosts</h3>
+    <ul id="stats-referrers">
+      <li th:each="host : ${stats.topReferrerHosts()}"><span th:text="${host.host()}">host</span>: <span th:text="${host.clicks()}">0</span></li>
+      <li>No Referrer Host: <span th:text="${stats.noReferrerHost()}">0</span></li>
+    </ul>
+
+    <h3>Clicks per day (last 30 days, UTC)</h3>
+    <table id="stats-per-day" class="per-day">
+      <thead><tr><th scope="col">Date</th><th scope="col">Clicks</th><th scope="col"><span class="visually-hidden">Bar</span></th></tr></thead>
+      <tbody>
+        <tr th:each="day : ${stats.clicksPerDay()}">
+          <td th:text="${day.date()}">2026-10-08</td>
+          <td th:text="${day.clicks()}">0</td>
+          <td><progress class="bar" aria-hidden="true" th:max="${maxPerDay}" th:value="${day.clicks()}"></progress></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+</body>
+</html>
