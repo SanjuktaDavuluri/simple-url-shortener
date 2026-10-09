@@ -424,9 +424,17 @@ class Schedule:
         if ctx.github.pr(current["pr"]).state != "open":
             return current
         tree = lane_tree(ctx, current)
-        conflicts = bring_in_main(tree, f"chore: bring main into the Lane (#{current['issue']})")
-        if conflicts is None:
+        taken = bring_in_main(
+            tree,
+            f"chore: bring main into the Lane (#{current['issue']})",
+            tuple(p for p in ctx.settings.shared_docs.split(",") if p),
+        )
+        if taken is None:
             return current
+        conflicts, merged_rows = taken
+        if merged_rows:
+            data = {"lane": current["key"], "pr": current["pr"], "files": merged_rows}
+            ctx.event("conflict_merged_by_rows", "pr", data)
         if conflicts:
             reason = (
                 f"PR #{current['pr']} conflicts with main in {', '.join(conflicts)}. Resolve them "

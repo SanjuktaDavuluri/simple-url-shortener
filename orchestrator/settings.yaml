@@ -14,6 +14,7 @@ board_number: 1
 # Exit Gate commands, run inside a Lane's own worktree (defaults shown)
 verify_command: scripts/with-jdk.sh ./mvnw -B -q verify   # finds JDK 25 like scripts/local.sh
 web_paths: src/main/resources/templates/,src/main/resources/static/
+shared_docs: README.md,docs/plans/0001-integration-testing.md   # a conflict only here is merged row by row (#77)
 app_start_command: scripts/local.sh start            # PORT and DATA_DIR are a free port and a fresh temp dir
 app_stop_command: scripts/local.sh stop
 browser_check_command: cd e2e && npm ci --silent && npm run browser-checks

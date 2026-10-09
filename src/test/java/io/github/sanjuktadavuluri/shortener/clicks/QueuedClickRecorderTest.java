@@ -520,6 +520,11 @@ class QueuedClickRecorderTest {
       throw new UnsupportedOperationException();
     }
 
+    @Override
+    public ClickSummary summarise(String shortCode, Instant windowStart) {
+      throw new UnsupportedOperationException();
+    }
+
     List<List<Click>> batches() {
       synchronized (batches) {
         return List.copyOf(batches);

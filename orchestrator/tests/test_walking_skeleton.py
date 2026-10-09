@@ -223,6 +223,7 @@ def test_run_records_the_settings_it_used(
         "board_number": 0,
         "verify_command": "scripts/with-jdk.sh ./mvnw -B -q verify",
         "web_paths": "src/main/resources/templates/,src/main/resources/static/",
+        "shared_docs": "README.md,docs/plans/0001-integration-testing.md",
         "app_start_command": "scripts/local.sh start",
         "app_stop_command": "scripts/local.sh stop",
         "browser_check_command": "cd e2e && npm ci --silent && npm run browser-checks",

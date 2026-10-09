@@ -20,6 +20,27 @@ public interface LinkStore {
    */
   Optional<Destination> findDestination(String shortCode);
 
+  /**
+   * Returns the Link with this Short Code, Expired or not, as the Stats need it: its Short Code,
+   * Long URL, creation time and Manage Token hash (absent for a Link created before Manage Tokens).
+   * A single query by primary key; the Redirect lookup is unchanged (spec 0005).
+   */
+  Optional<StoredLink> findForStats(String shortCode);
+
+  /**
+   * A stored Link as the Stats read it. Its {@link #toString()} leaves the Manage Token hash out,
+   * so the hash can't reach a log line (spec 0005, story 21).
+   */
+  record StoredLink(
+      String shortCode, String longUrl, Instant createdAt, Optional<String> manageTokenHash) {
+
+    @Override
+    public String toString() {
+      return "StoredLink[shortCode=%s, longUrl=%s, createdAt=%s]"
+          .formatted(shortCode, longUrl, createdAt);
+    }
+  }
+
   /** What a Redirect needs to know about a Link: where it points and when it expires, if ever. */
   record Destination(String longUrl, Optional<Instant> expiry) {
 
