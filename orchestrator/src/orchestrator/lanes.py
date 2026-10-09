@@ -400,7 +400,11 @@ class Schedule:
         lanes = {ln["key"]: dict(ln) for ln in state["lanes"]}
         for key, current in lanes.items():
             if current["status"] == "awaiting_checks":
-                lanes[key] = current = self.checks(current)
+                # A conflict pauses the Lane before passed checks ask for the merge (#76).
+                current = self.up_to_date(current)
+                if current["status"] == "awaiting_checks":
+                    current = self.checks(current)
+                lanes[key] = current
             if current["status"] == "awaiting_merge":
                 lanes[key] = self.merge(current)
             if current["status"] == "awaiting_amendment":
@@ -426,7 +430,8 @@ class Schedule:
         if conflicts:
             reason = (
                 f"PR #{current['pr']} conflicts with main in {', '.join(conflicts)}. Resolve them "
-                f"in {tree} (merge origin/main, commit with (#{current['issue']}))"
+                f"in {tree.relative_to(ctx.workspace.repo_root)} (merge origin/main, commit with "
+                f"(#{current['issue']}))"
             )
             ctx.event("paused", "pr", {"reason": reason, "lane": current["key"]})
             ctx.mirror(
