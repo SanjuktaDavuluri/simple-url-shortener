@@ -13,3 +13,4 @@ Specs record **what** we are building and why it matters to its users. They pair
 | 0003 | [Clickstream: record a Click for every successful Redirect](0003-clickstream.md) | implemented | R10: Run R-0001, Issue #49 |
 | 0004 | [Expiring Links: an optional per-Link Lifetime, answered with `410 Gone` once it has passed](0004-expiring-links.md) | implemented | R3: Run R-0002, Issue #83 |
 | 0006 | [Operability basics: health checks, metrics, structured logs with request IDs, graceful shutdown and a first runbook](0006-operability-basics.md) | implemented | R12: Run R-0004, Issue #96 |
+| 0005 | [Click stats per Link: the creator can see how a Link is used](0005-click-stats-per-link.md) | implemented | R2: Run R-0003, Issue #95 |
