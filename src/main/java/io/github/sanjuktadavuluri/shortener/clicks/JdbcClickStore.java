@@ -3,6 +3,7 @@ package io.github.sanjuktadavuluri.shortener.clicks;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -91,7 +93,11 @@ class JdbcClickStore implements ClickStore {
   /**
    * Aggregates in SQL with {@code GROUP BY} over the {@code (short_code, clicked_at)} index, inside
    * one transaction, so every number comes from the same snapshot (WAL, ADR 0021) and the Clicks
-   * are never all loaded into memory. Bots are left out of the last Click (ADR 0013).
+   * are never all loaded into memory. Bots count only in the Agent Category split, and are left out
+   * of every other number (ADR 0013).
+   *
+   * <p>{@code clicked_at} is stored as ISO-8601 UTC text of fixed width, so its first ten
+   * characters are the UTC date and comparing it as text compares the instants.
    */
   @Override
   public ClickSummary summarise(String shortCode, Instant windowStart) {
@@ -113,6 +119,68 @@ class JdbcClickStore implements ClickStore {
                             row.getString("agent_category").toUpperCase(Locale.ROOT)),
                         row.getLong("clicks"));
                   });
+          Map<DeviceClass, Long> byDeviceClass = new EnumMap<>(DeviceClass.class);
+          jdbc.sql(
+                  """
+                  SELECT device_class, COUNT(*) AS clicks
+                  FROM clicks
+                  WHERE short_code = :shortCode AND agent_category <> 'bot'
+                  GROUP BY device_class
+                  """)
+              .param("shortCode", shortCode)
+              .query(
+                  row -> {
+                    byDeviceClass.put(
+                        DeviceClass.valueOf(row.getString("device_class").toUpperCase(Locale.ROOT)),
+                        row.getLong("clicks"));
+                  });
+          List<ClickSummary.ReferrerHostClicks> topReferrerHosts =
+              jdbc.sql(
+                      """
+                      SELECT referrer_host, COUNT(*) AS clicks
+                      FROM clicks
+                      WHERE short_code = :shortCode
+                        AND agent_category <> 'bot'
+                        AND referrer_host IS NOT NULL
+                      GROUP BY referrer_host
+                      ORDER BY clicks DESC, referrer_host ASC
+                      LIMIT :top
+                      """)
+                  .param("shortCode", shortCode)
+                  .param("top", ClickSummary.TOP_REFERRER_HOSTS)
+                  .query(
+                      (row, rowNumber) ->
+                          new ClickSummary.ReferrerHostClicks(
+                              row.getString("referrer_host"), row.getLong("clicks")))
+                  .list();
+          long noReferrerHost =
+              jdbc.sql(
+                      """
+                      SELECT COUNT(*)
+                      FROM clicks
+                      WHERE short_code = :shortCode
+                        AND agent_category <> 'bot'
+                        AND referrer_host IS NULL
+                      """)
+                  .param("shortCode", shortCode)
+                  .query(Long.class)
+                  .single();
+          Map<LocalDate, Long> clicksPerDay = new TreeMap<>();
+          jdbc.sql(
+                  """
+                  SELECT substr(clicked_at, 1, 10) AS day, COUNT(*) AS clicks
+                  FROM clicks
+                  WHERE short_code = :shortCode
+                    AND clicked_at >= :windowStart
+                    AND agent_category <> 'bot'
+                  GROUP BY day
+                  """)
+              .param("shortCode", shortCode)
+              .param("windowStart", CLICKED_AT.format(windowStart))
+              .query(
+                  row -> {
+                    clicksPerDay.put(LocalDate.parse(row.getString("day")), row.getLong("clicks"));
+                  });
           Optional<Instant> lastClickAt =
               jdbc.sql(
                       """
@@ -124,7 +192,13 @@ class JdbcClickStore implements ClickStore {
                   .query((row, rowNumber) -> Optional.ofNullable(row.getString(1)))
                   .single()
                   .map(Instant::parse);
-          return new ClickSummary(byAgentCategory, lastClickAt);
+          return new ClickSummary(
+              byAgentCategory,
+              byDeviceClass,
+              topReferrerHosts,
+              noReferrerHost,
+              clicksPerDay,
+              lastClickAt);
         });
   }
 

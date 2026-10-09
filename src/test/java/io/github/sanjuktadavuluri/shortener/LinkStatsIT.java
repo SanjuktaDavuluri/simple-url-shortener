@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,13 +17,15 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Issue #105 (spec 0005 seam 1; stories 8, 10, 12, 15–17, 19–24; ADRs 0013, 0014 and 0023): a
- * Link's headline Stats over the JSON API, read with its Manage Token in an {@code Authorization:
- * Bearer} header. Clicks come from real Redirects with chosen headers, saved by flushing the Click
- * Recorder (never by sleeping). Every failure is the same {@code 404}, byte for byte.
+ * Issues #105 and #107 (spec 0005 seam 1; stories 8, 10–17, 19–24; ADRs 0013, 0014 and 0023): a
+ * Link's Stats over the JSON API, read with its Manage Token in an {@code Authorization: Bearer}
+ * header. Clicks come from real Redirects with chosen headers, saved by flushing the Click Recorder
+ * (never by sleeping), with the clock fixed so the 30-day window is known. Every failure is the
+ * same {@code 404}, byte for byte.
  */
 @ExtendWith(OutputCaptureExtension.class)
 class LinkStatsIT extends IntegrationTest {
@@ -53,6 +56,30 @@ class LinkStatsIT extends IntegrationTest {
 
   private static final String GOOGLEBOT =
       "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+
+  private static final String GOOGLEBOT_SMARTPHONE =
+      "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like"
+          + " Gecko) Chrome/126.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1;"
+          + " +http://www.google.com/bot.html)";
+
+  /** The 29 days of the window before today when every Click was today: all zero. */
+  private static final String NO_CLICKS_9_SEPTEMBER_TO_7_OCTOBER =
+      """
+      {"date": "2026-09-09", "clicks": 0}, {"date": "2026-09-10", "clicks": 0},
+      {"date": "2026-09-11", "clicks": 0}, {"date": "2026-09-12", "clicks": 0},
+      {"date": "2026-09-13", "clicks": 0}, {"date": "2026-09-14", "clicks": 0},
+      {"date": "2026-09-15", "clicks": 0}, {"date": "2026-09-16", "clicks": 0},
+      {"date": "2026-09-17", "clicks": 0}, {"date": "2026-09-18", "clicks": 0},
+      {"date": "2026-09-19", "clicks": 0}, {"date": "2026-09-20", "clicks": 0},
+      {"date": "2026-09-21", "clicks": 0}, {"date": "2026-09-22", "clicks": 0},
+      {"date": "2026-09-23", "clicks": 0}, {"date": "2026-09-24", "clicks": 0},
+      {"date": "2026-09-25", "clicks": 0}, {"date": "2026-09-26", "clicks": 0},
+      {"date": "2026-09-27", "clicks": 0}, {"date": "2026-09-28", "clicks": 0},
+      {"date": "2026-09-29", "clicks": 0}, {"date": "2026-09-30", "clicks": 0},
+      {"date": "2026-10-01", "clicks": 0}, {"date": "2026-10-02", "clicks": 0},
+      {"date": "2026-10-03", "clicks": 0}, {"date": "2026-10-04", "clicks": 0},
+      {"date": "2026-10-05", "clicks": 0}, {"date": "2026-10-06", "clicks": 0},
+      {"date": "2026-10-07", "clicks": 0},""";
 
   private static final String REFERER =
       "https://reader:secret@News.Example.com:8443/private/draft?ref=feed#notes";
@@ -104,10 +131,163 @@ class LinkStatsIT extends IntegrationTest {
               "clicks": 3,
               "bot_clicks": 1,
               "last_click_at": "2026-10-08T09:30:02.004Z",
-              "by_agent_category": {"browser": 2, "other": 1, "bot": 1}
+              "clicks_per_day": [
+                %s
+                {"date": "2026-10-08", "clicks": 3}
+              ],
+              "by_agent_category": {"browser": 2, "other": 1, "bot": 1},
+              "by_device_class": {"desktop": 2, "mobile": 1},
+              "top_referrer_hosts": [{"host": "news.example.com", "clicks": 2}],
+              "no_referrer_host": 1
             }
             """
-                .formatted(createdAtOf(stats)));
+                .formatted(createdAtOf(stats), NO_CLICKS_9_SEPTEMBER_TO_7_OCTOBER));
+  }
+
+  @Test
+  void aClick29DaysAgoIsInTheClicksPerDayAndOne30DaysAgoIsOutButStillInTheHeadlineCount() {
+    shortCodes.willReturn("Ab3xK9q");
+    manageTokens.willReturn(FIRST);
+    clock.set(Instant.parse("2026-09-08T09:30:00Z"));
+    createLink("https://example.com/older");
+
+    redirect("Ab3xK9q", null, FIREFOX_ON_LINUX); // 30 days ago: out of the series
+    clock.set(Instant.parse("2026-09-08T23:59:59.999Z"));
+    redirect("Ab3xK9q", null, FIREFOX_ON_LINUX); // the last moment before the window
+    clock.set(Instant.parse("2026-09-09T09:30:00Z"));
+    redirect("Ab3xK9q", null, FIREFOX_ON_LINUX); // 29 days ago: the first day of the series
+    clock.set(Instant.parse("2026-10-07T23:59:59.999Z"));
+    redirect("Ab3xK9q", null, CURL); // just before UTC midnight: yesterday
+    clock.set(NOW);
+    redirect("Ab3xK9q", null, CHROME_ON_ANDROID); // today
+    flushClicks();
+
+    MvcTestResult stats = stats("Ab3xK9q", "Bearer " + FIRST);
+
+    assertThat(body(stats).get("clicks").asLong()).isEqualTo(5);
+    assertThat(clicksPerDay(stats))
+        .containsExactly(
+            "2026-09-09: 1",
+            "2026-09-10: 0",
+            "2026-09-11: 0",
+            "2026-09-12: 0",
+            "2026-09-13: 0",
+            "2026-09-14: 0",
+            "2026-09-15: 0",
+            "2026-09-16: 0",
+            "2026-09-17: 0",
+            "2026-09-18: 0",
+            "2026-09-19: 0",
+            "2026-09-20: 0",
+            "2026-09-21: 0",
+            "2026-09-22: 0",
+            "2026-09-23: 0",
+            "2026-09-24: 0",
+            "2026-09-25: 0",
+            "2026-09-26: 0",
+            "2026-09-27: 0",
+            "2026-09-28: 0",
+            "2026-09-29: 0",
+            "2026-09-30: 0",
+            "2026-10-01: 0",
+            "2026-10-02: 0",
+            "2026-10-03: 0",
+            "2026-10-04: 0",
+            "2026-10-05: 0",
+            "2026-10-06: 0",
+            "2026-10-07: 1",
+            "2026-10-08: 1");
+  }
+
+  @Test
+  void theBreakdownsAccountForEveryNonBotClickAndBotClicksOnlyForBotClicksAndTheirCategory() {
+    shortCodes.willReturn("Ab3xK9q");
+    manageTokens.willReturn(FIRST);
+    createLink("https://example.com/very/long");
+
+    redirect("Ab3xK9q", REFERER, CHROME_ON_ANDROID);
+    redirect("Ab3xK9q", "https://t.co/xyz", CHROME_ON_ANDROID);
+    redirect("Ab3xK9q", REFERER, FIREFOX_ON_LINUX);
+    redirect("Ab3xK9q", null, FIREFOX_ON_LINUX);
+    redirect("Ab3xK9q", null, CURL);
+    redirect("Ab3xK9q", "https://crawler.example/seen", GOOGLEBOT);
+    redirect("Ab3xK9q", "https://crawler.example/seen", GOOGLEBOT_SMARTPHONE);
+    flushClicks();
+
+    MvcTestResult stats = stats("Ab3xK9q", "Bearer " + FIRST);
+
+    assertThat(stats)
+        .hasStatus(200)
+        .bodyJson()
+        .isLenientlyEqualTo(
+            """
+            {
+              "clicks": 5,
+              "bot_clicks": 2,
+              "by_agent_category": {"browser": 4, "other": 1, "bot": 2},
+              "by_device_class": {"desktop": 3, "mobile": 2},
+              "no_referrer_host": 2
+            }
+            """);
+    assertThat(topReferrerHosts(stats)).containsExactly("news.example.com: 2", "t.co: 1");
+    assertThat(clicksPerDay(stats)).hasSize(30).last().isEqualTo("2026-10-08: 5");
+    JsonNode body = body(stats);
+    long clicks = body.get("clicks").asLong();
+    assertThat(
+            body.get("by_device_class").get("desktop").asLong()
+                + body.get("by_device_class").get("mobile").asLong())
+        .as("the Device Class split sums to the Headline Click count")
+        .isEqualTo(clicks);
+    assertThat(
+            body.get("top_referrer_hosts").get(0).get("clicks").asLong()
+                + body.get("top_referrer_hosts").get(1).get("clicks").asLong()
+                + body.get("no_referrer_host").asLong())
+        .as("the top Referrer Hosts and no_referrer_host account for every non-bot Click")
+        .isEqualTo(clicks);
+    assertThat(stats).body().asString().doesNotContain("crawler.example");
+  }
+
+  @Test
+  void theTopReferrerHostsAreCutAtTenByClicksThenByHost() {
+    shortCodes.willReturn("Ab3xK9q");
+    manageTokens.willReturn(FIRST);
+    createLink("https://example.com/very/long");
+
+    redirect("Ab3xK9q", "https://zz.example/a", FIREFOX_ON_LINUX);
+    redirect("Ab3xK9q", "https://zz.example/b", CHROME_ON_ANDROID);
+    for (String host :
+        List.of(
+            "k.example",
+            "j.example",
+            "i.example",
+            "h.example",
+            "g.example",
+            "f.example",
+            "e.example",
+            "d.example",
+            "c.example",
+            "b.example",
+            "a.example")) {
+      redirect("Ab3xK9q", "https://" + host + "/", FIREFOX_ON_LINUX);
+    }
+    flushClicks();
+
+    MvcTestResult stats = stats("Ab3xK9q", "Bearer " + FIRST);
+
+    assertThat(body(stats).get("clicks").asLong()).isEqualTo(13);
+    assertThat(topReferrerHosts(stats))
+        .containsExactly(
+            "zz.example: 2",
+            "a.example: 1",
+            "b.example: 1",
+            "c.example: 1",
+            "d.example: 1",
+            "e.example: 1",
+            "f.example: 1",
+            "g.example: 1",
+            "h.example: 1",
+            "i.example: 1");
+    assertThat(body(stats).get("no_referrer_host").asLong()).isZero();
   }
 
   @Test
@@ -121,12 +301,14 @@ class LinkStatsIT extends IntegrationTest {
   }
 
   @Test
-  void aLinkWithNoClicksGetsZerosEveryAgentCategoryAndNoLastClick() {
+  void aLinkWithNoClicksGetsZerosThirtyZeroDaysAndNoReferrerHostsNotAnError() {
     shortCodes.willReturn("Ab3xK9q");
     manageTokens.willReturn(FIRST);
     createLink("https://example.com/quiet");
 
-    assertThat(stats("Ab3xK9q", "Bearer " + FIRST))
+    MvcTestResult stats = stats("Ab3xK9q", "Bearer " + FIRST);
+
+    assertThat(stats)
         .hasStatus(200)
         .hasHeader("Cache-Control", "no-store")
         .bodyJson()
@@ -137,9 +319,17 @@ class LinkStatsIT extends IntegrationTest {
               "clicks": 0,
               "bot_clicks": 0,
               "last_click_at": null,
-              "by_agent_category": {"browser": 0, "other": 0, "bot": 0}
+              "by_agent_category": {"browser": 0, "other": 0, "bot": 0},
+              "by_device_class": {"desktop": 0, "mobile": 0},
+              "top_referrer_hosts": [],
+              "no_referrer_host": 0
             }
             """);
+    assertThat(clicksPerDay(stats))
+        .hasSize(30)
+        .allSatisfy(day -> assertThat(day).endsWith(": 0"))
+        .startsWith("2026-09-09: 0")
+        .endsWith("2026-10-08: 0");
   }
 
   @Test
@@ -346,6 +536,31 @@ class LinkStatsIT extends IntegrationTest {
       request = request.header(HttpHeaders.AUTHORIZATION, authorization);
     }
     return request.exchange();
+  }
+
+  /** A Stats body, parsed. */
+  private static JsonNode body(MvcTestResult stats) {
+    return JSON.readTree(stats.getResponse().getContentAsByteArray());
+  }
+
+  /** The {@code clicks_per_day} of a Stats body in the order sent, each as "date: clicks". */
+  private static List<String> clicksPerDay(MvcTestResult stats) {
+    return entries(body(stats).get("clicks_per_day"), "date");
+  }
+
+  /** The {@code top_referrer_hosts} of a Stats body in the order sent, each as "host: clicks". */
+  private static List<String> topReferrerHosts(MvcTestResult stats) {
+    return entries(body(stats).get("top_referrer_hosts"), "host");
+  }
+
+  private static List<String> entries(JsonNode array, String key) {
+    List<String> entries = new ArrayList<>();
+    for (int i = 0; i < array.size(); i++) {
+      JsonNode entry = array.get(i);
+      assertThat(entry.propertyNames()).containsExactlyInAnyOrder(key, "clicks");
+      entries.add(entry.get(key).asString() + ": " + entry.get("clicks").asLong());
+    }
+    return entries;
   }
 
   /** The {@code created_at} of a Stats body, as sent. */

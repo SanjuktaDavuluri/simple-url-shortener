@@ -5,10 +5,14 @@ import io.github.sanjuktadavuluri.shortener.LinkStore.StoredLink;
 import io.github.sanjuktadavuluri.shortener.ManageTokens;
 import io.github.sanjuktadavuluri.shortener.ShortenerProperties;
 import io.github.sanjuktadavuluri.shortener.clicks.ClickStore;
+import io.github.sanjuktadavuluri.shortener.clicks.ClickSummary;
+import io.github.sanjuktadavuluri.shortener.stats.LinkStats.DayClicks;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 
@@ -51,6 +55,9 @@ public class LinkStatsService {
     }
     StoredLink stored = link.orElseThrow();
     Instant now = clock.instant();
+    LocalDate firstDay = LocalDate.ofInstant(now, ZoneOffset.UTC).minusDays(WINDOW_DAYS - 1L);
+    ClickSummary summary =
+        clicks.summarise(stored.shortCode(), firstDay.atStartOfDay(ZoneOffset.UTC).toInstant());
     return Optional.of(
         new LinkStats(
             stored.shortCode(),
@@ -58,14 +65,17 @@ public class LinkStatsService {
             stored.longUrl(),
             stored.createdAt(),
             now,
-            clicks.summarise(stored.shortCode(), windowStart(now))));
+            clicksPerDay(firstDay, summary),
+            summary));
   }
 
-  /** Midnight UTC at the start of the oldest day in the window ending today (UTC). */
-  private static Instant windowStart(Instant now) {
-    return LocalDate.ofInstant(now, ZoneOffset.UTC)
-        .minusDays(WINDOW_DAYS - 1L)
-        .atStartOfDay(ZoneOffset.UTC)
-        .toInstant();
+  /** The {@value #WINDOW_DAYS} days from the first, oldest first; a day without Clicks is 0. */
+  private static List<DayClicks> clicksPerDay(LocalDate firstDay, ClickSummary summary) {
+    List<DayClicks> days = new ArrayList<>(WINDOW_DAYS);
+    for (int offset = 0; offset < WINDOW_DAYS; offset++) {
+      LocalDate day = firstDay.plusDays(offset);
+      days.add(new DayClicks(day, summary.clicksPerDay().getOrDefault(day, 0L)));
+    }
+    return days;
   }
 }
