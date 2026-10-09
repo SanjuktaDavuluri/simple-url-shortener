@@ -32,13 +32,14 @@ class ReleaseReadiness:
             *((n, ctx.issue, None) for n in docs),
             *((ln["pr"], ln["issue"], ln) for ln in merged),
         ]
+        waived = {e["data"]["pr"] for e in ctx.log.read() if e["type"] == "waived"}
         for number, issue, current in prs:
             pr = ctx.github.pr(number)
             if pr.state != "merged":
                 problems.append(f"PR #{number} is not merged")
             if current is not None and f"Closes #{issue}" not in pr.body:
                 problems.append(f"PR #{number} does not say Closes #{issue}")
-            for subject in pr.commits:
+            for subject in () if number in waived else pr.commits:
                 if f"#{issue}" not in subject:
                     problems.append(f"PR #{number}: commit '{subject}' does not reference #{issue}")
         for e in ctx.log.read():
@@ -47,7 +48,12 @@ class ReleaseReadiness:
         ctx.event(
             "gate_result",
             "release_readiness",
-            {"gate": "traceability is complete", "passed": not problems, "problems": problems},
+            {
+                "gate": "traceability is complete",
+                "passed": not problems,
+                "problems": problems,
+                "waived": sorted(n for n, _, _ in prs if n in waived),
+            },
         )
         if problems:
             listing = "\n".join(f"- {p}" for p in problems)
@@ -88,7 +94,7 @@ def report(run: str, events: list[Event]) -> str:
         f"| {e['data'].get('channel')} "
         f"| {e['data'].get('reason', '')} |"
         for e in events
-        if e["type"] in ("approved", "rejected")
+        if e["type"] in ("approved", "rejected", "waived")
     )
     prs = "\n".join(
         f"| {e['data']['lane']} | #{e['data']['pr']} |" for e in events if e["type"] == "pr_opened"

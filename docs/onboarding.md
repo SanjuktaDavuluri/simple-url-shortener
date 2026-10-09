@@ -188,6 +188,7 @@ The orchestrator automates the chain in section 5 under human control. It's a se
 | `orchestrate status [run]` | see the Stages, what the Run waits for, and its cost |
 | `orchestrate stop <run>` | Safe-stop it after the current step; `resume` continues |
 | `orchestrate reject <run> lane:<key> --reason "…"` | roll back a paused Lane |
+| `orchestrate waive <run> <pr> --reason "…"` | release readiness paused on a merged PR's commit without its ticket reference: record a waiver, then `resume` |
 | `orchestrate replan <run>` | after changing an approved input on GitHub; only what depends on it is redone |
 | `orchestrate verify <run>` / `--all` | check that Event Logs are intact |
 | `orchestrate metrics` | regenerate `delivery/metrics.md` |
