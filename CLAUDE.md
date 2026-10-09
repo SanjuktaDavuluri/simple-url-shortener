@@ -69,3 +69,7 @@ The default five roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-
 ### Domain docs
 
 Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+
+## Agent instruction
+- Always fix python formatting issues using `uv run check . --fix && uv run format`.
+- Fix formatting issues using tools like ruff, etc. If it is still not fixing it, you can add a skip.
