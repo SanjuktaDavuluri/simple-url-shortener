@@ -221,6 +221,24 @@ def test_no_web_change_means_no_browser_checks(
 # document and PR
 
 
+def test_the_document_step_writes_a_per_ticket_note_and_leaves_the_readme_alone(
+    orchestrate: Orchestrate,
+    github: InMemoryGitHub,
+    agent: ScriptedAgent,
+    repo: Path,
+    published: Callable[[], int],
+) -> None:
+    lane_script(agent)
+
+    through_docs_pr(orchestrate, github, repo, published)
+
+    document = next(r for r in agent.requests if r.stage == "document")
+    instructions = " ".join(document.instructions.split())
+    assert "docs/Issue-100-readme.md" in instructions
+    assert "Never edit README.md" in instructions
+    assert "without reading the whole plan" in instructions
+
+
 def test_the_document_stage_commits_doc_updates_and_the_pr_closes_the_ticket(
     orchestrate: Orchestrate,
     github: InMemoryGitHub,
