@@ -21,6 +21,7 @@ class ComposeFileTest {
 
   private static final Path COMPOSE = Path.of("compose.yaml");
   private static final Path RUNBOOK = Path.of("docs/runbook.md");
+
   /** Documented settings that Compose deliberately doesn't pass (the image fixes them). */
   private static final Set<String> NOT_PASSED = Set.of("DATABASE_PATH");
 
