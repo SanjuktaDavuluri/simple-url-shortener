@@ -119,7 +119,7 @@ class RunContext:
                     request,
                     guard=guard,
                     model=self.settings.stage_models.get(request.stage, self.settings.model),
-                    effort=self.settings.effort,
+                    effort=self.settings.stage_efforts.get(request.stage, self.settings.effort),
                 )
             )
         except AgentFailed as failed:
