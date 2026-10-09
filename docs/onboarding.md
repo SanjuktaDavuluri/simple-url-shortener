@@ -5,8 +5,8 @@ A guide for an engineer joining the project, or a reviewer who wants to run it a
 ## 1. Read these first (10 minutes)
 
 1. **[README](../README.md):** what the product does, the two planes (the product and the delivery orchestrator), and links to everything else.
-2. **[`CONTEXT.md`](../CONTEXT.md):** the domain vocabulary. Code, tickets and docs all use these terms (*Link*, *Long URL*, *Short Code*, *Rule*, *Redirect*, *Click*, *Click Recorder*, *Referrer Host*, *Agent Category*, *Device Class*), so learn them before reading code.
-3. **[`docs/architecture.md`](architecture.md):** the two planes, the create and Redirect flows as sequence diagrams, the Click flow, and SQLite's concurrency settings.
+2. **[`CONTEXT.md`](../CONTEXT.md):** the domain vocabulary. Code, tickets and docs all use these terms (*Link*, *Long URL*, *Short Code*, *Rule*, *Redirect*, *Lifetime*, *Expiry*, *Expired Link*, *Click*, *Click Recorder*, *Referrer Host*, *Agent Category*, *Device Class*), so learn them before reading code.
+3. **[`docs/architecture.md`](architecture.md):** the two planes, the create and Redirect flows as sequence diagrams (with a Link's Lifetime and Expiry, and the `410` for an Expired Link), the Click flow, and SQLite's concurrency settings.
 4. **[ADRs](adr/), at least 0001–0006:** why the service is built the way it is. Each one lists the options that were rejected.
 5. **[`CLAUDE.md`](../CLAUDE.md):** the project charter, the working rules that people and Claude Code both follow.
 
@@ -44,6 +44,25 @@ curl -s -X POST localhost:8000/links -H 'content-type: application/json' -d '{"u
 curl -si localhost:8000/<short_code>     # 302 to the Long URL
 ```
 
+A Link can have an optional **Lifetime** of 1 to 365 whole days (`expires_in_days`; [spec 0004](specs/0004-expiring-links.md)). The `201` always includes `expires_at`. That is the Link's **Expiry** in ISO-8601 UTC (the moment of creation plus the Lifetime in exact 24-hour days), or `null` for a Link created without a Lifetime, which never expires:
+
+```bash
+curl -s -X POST localhost:8000/links -H 'content-type: application/json' \
+     -d '{"url": "https://example.com/offer", "expires_in_days": 30}'
+# 201 {"short_code":"Qp7tZ2w","short_url":"http://localhost:8000/Qp7tZ2w","long_url":"https://example.com/offer",
+#      "manage_token":"<43 random characters, shown only this once>","expires_at":"2026-11-07T10:15:30.123Z"}
+
+curl -si localhost:8000/Qp7tZ2w          # before expires_at: 302 to the Long URL, and one Click recorded
+curl -si localhost:8000/Qp7tZ2w          # from expires_at on, the Expired Link answers:
+# HTTP/1.1 410
+# Content-Type: text/plain;charset=UTF-8
+# Cache-Control: no-store
+#
+# This link has expired.
+```
+
+An Expired Link records no Click, and `HEAD` gets the same `410` without a body. An unknown Short Code is still `404`. An `expires_in_days` that isn't a whole number from 1 to 365 (`0`, `366`, `1.5`, `"30"`, `true`) gets a `422` with "expires_in_days must be a whole number of days from 1 to 365.", and no Link is created. The web page has the same option as an "Expires after (days)" field and shows the Expiry in UTC with the result. An Expired Link stays stored, and its Short Code is never reused ([ADR 0022](adr/0022-expired-links-kept-short-codes-never-reused.md)). There's nothing to configure.
+
 To run a second, throwaway copy next to it, give it its own port and data directory: `PORT=8765 DATA_DIR=/tmp/shortener-scratch scripts/local.sh start`. The same pattern keeps automated runs away from your service.
 
 | Setting | Default | Purpose |
@@ -75,10 +94,11 @@ Browser checks and Lighthouse, against a running app:
 
 | Where | What |
 |---|---|
-| `LinkController`, `PageController` | The JSON API (`POST /links`, `GET /{shortCode}`) and the web page (`GET /`, `POST /`). `LinkController.followLink` is the Redirect: after sending the `302` for a `GET`, it builds a Click and hands it to the Click Recorder (never for a `404` or a `HEAD`) |
-| `LinkService` | Create-a-Link: run the Rule Set, draw Short Codes, retry on Collision |
+| `LinkController`, `PageController` | The JSON API (`POST /links`, `GET /{shortCode}`) and the web page (`GET /`, `POST /`). `LinkController.followLink` is the Redirect: `404` for an unknown Short Code, `410 Gone` for an Expired Link, otherwise the `302`, after which, for a `GET`, it builds a Click and hands it to the Click Recorder (never for a `404`, a `410` or a `HEAD`). `createLink` reads `expires_in_days` without coercing it and always returns `expires_at` |
+| `LinkService` | Create-a-Link: run the Rule Set, turn the optional Lifetime into the Expiry (from the injected `Clock`), draw Short Codes, retry on Collision |
+| `Lifetime` | The Lifetime value type: a whole number of days from 1 to 365 (a constant in the type), its validation message, and the Expiry it gives from a creation instant. Shared by the JSON API and the web page; not a Rule ([spec 0004](specs/0004-expiring-links.md)) |
 | `rules/` | One class per URL Rule, plus the ordered `RuleSet` ([ADR 0004](adr/0004-url-rules-as-separate-module.md)) |
-| `LinkStore`, `JdbcLinkStore` | Storage interface and its SQLite implementation ([ADR 0002](adr/0002-sqlite-for-v1-storage.md)) |
+| `LinkStore`, `JdbcLinkStore` | Storage interface and its SQLite implementation ([ADR 0002](adr/0002-sqlite-for-v1-storage.md)): save a Link with its optional Expiry, and `findDestination`, the Redirect's single primary-key lookup of the Long URL and Expiry. Nothing deletes Links, so an Expired Link's Short Code is never reused ([ADR 0022](adr/0022-expired-links-kept-short-codes-never-reused.md)) |
 | `ShortCodeGenerator`, `RandomShortCodeGenerator` | 7-character base62 codes ([ADR 0003](adr/0003-random-short-codes.md)) |
 | `clicks/Click`, `ClickClassification`, `AgentCategory`, `DeviceClass` | The Click value (Short Code, UTC time, Referrer Host, Agent Category, Device Class) and its attributes; nothing that could identify a person ([ADR 0013](adr/0013-clicks-store-minimal-non-personal-data.md), [spec 0003](specs/0003-clickstream.md)) |
 | `clicks/ClickClassifier`, `BotPatterns` | Pure reduction of the raw `Referer` and `User-Agent` to the Referrer Host, Agent Category and Device Class; `BotPatterns` is the one maintained list of crawler and link-preview patterns |
@@ -86,7 +106,7 @@ Browser checks and Lighthouse, against a running app:
 | `clicks/ClickStore`, `JdbcClickStore` | The Click Store: save a batch, list a Short Code's Clicks oldest first. The only code that touches the `clicks` table; R2's stats API reads through it |
 | `ClicksConfiguration` | Wires the `QueuedClickRecorder` from the `CLICK_*` settings and the UTC `Clock` that times each Click |
 | `src/main/resources/application.properties` | Every setting with its default, including the Click settings and SQLite's WAL mode, busy timeout and pool of 4 ([ADR 0021](adr/0021-sqlite-wal-busy-timeout-and-small-connection-pool.md)) |
-| `src/main/resources/db/migration/` | Flyway migrations; the schema only changes through a new migration (`V2__create_clicks.sql` adds `clicks`) |
+| `src/main/resources/db/migration/` | Flyway migrations; the schema only changes through a new migration (`V2__create_clicks.sql` adds `clicks`; `V3__add_link_expiry.sql` adds the nullable `links.expires_at`, `NULL` for every older Link, which never expires; `V4__add_manage_token_hash.sql` adds `links.manage_token_hash`) |
 | `src/main/resources/templates/`, `static/` | Thymeleaf page and fragments, CSS, self-hosted HTMX ([ADR 0006](adr/0006-htmx-progressive-enhancement-web-page.md)) |
 | `src/test/` | `*Test`: unit tests. `*IT`: integration tests that extend `IntegrationTest`, which flushes the Click Recorder and resets the database before every test, and controls Short Codes through a scripted generator and time through a fixed `TestClock`. Stored Clicks are observed through the Click Store (`storedClicks`). `TestApps` starts extra instances, for restarts and stand-ins |
 | `e2e/` | Playwright browser checks and Lighthouse (≥ 90 in every category) |
