@@ -145,3 +145,17 @@ _Avoid_: Reopen, rework
 **Event Log**:
 The append-only, hash-chained record of everything that happened in a Run. It is the system of record; the Issue comments are a readable mirror of it.
 _Avoid_: History, audit (on its own), log (on its own)
+
+### Operating
+
+**Request ID**:
+The identifier of one request to the shortener, returned in the `X-Request-Id` response header and carried on every log line written while handling it. The caller's own `X-Request-Id` is used when it is safe, otherwise one is generated.
+_Avoid_: Trace ID, correlation ID, transaction ID
+
+**Liveness**:
+Whether the process is running and should not be restarted. It never depends on the database or the Click queue.
+_Avoid_: Health (on its own), ping
+
+**Readiness**:
+Whether the instance can serve traffic now: the database is reachable, the Click queue isn't saturated, and no shutdown has begun. Both checks are on the management port.
+_Avoid_: Healthy (on its own), up

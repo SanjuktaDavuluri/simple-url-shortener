@@ -174,3 +174,39 @@ flowchart LR
 ```
 
 The database is therefore **three files**: `links.db`, `links.db-wal` and `links.db-shm`. Back up, move or delete them together, and keep them on a local file system (never NFS or SMB); see [onboarding](onboarding.md#3-run-it).
+
+### Operability (spec 0006, ADR 0015)
+
+Every public request passes `RequestIdFilter` first: it takes or generates the Request ID, puts it in the logging context and the `X-Request-Id` response header, and writes one access line. Health and metrics are served on a separate management port (`MANAGEMENT_PORT`, default 8081), never on the public port. See the [runbook](runbook.md).
+
+```mermaid
+flowchart LR
+    C[Client] -->|"request, optional X-Request-Id"| F[RequestIdFilter]
+    F -->|"request_id in log context"| H["Handlers: create, Redirect, page"]
+    H -->|"X-Request-Id on every response"| C
+    F -->|"access line"| L[JSON console log]
+    H --> L
+    O[Operator or load balancer] -->|":8081 health, prometheus"| MP[Management port]
+    MP --> RD["Readiness: db, clickQueue"]
+    H -->|counters| M[Micrometer registry]
+    M --> MP
+```
+
+### Shutdown sequence
+
+```mermaid
+sequenceDiagram
+    participant P as Process manager
+    participant S as Service
+    participant W as Public server
+    participant K as Click Recorder
+    participant D as Connection pool
+    P->>S: SIGTERM
+    S->>S: Readiness becomes OUT_OF_SERVICE
+    S->>W: stop accepting connections
+    W-->>S: in-flight requests finish (up to SHUTDOWN_TIMEOUT)
+    S->>K: flush queued Clicks (up to CLICK_SHUTDOWN_TIMEOUT)
+    K-->>S: flushed and dropped counts logged
+    S->>D: close pool
+    S-->>P: exit (about 20 s at most with defaults)
+```

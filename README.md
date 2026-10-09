@@ -26,6 +26,7 @@ This README is the map. Every question a reviewer or a new engineer usually asks
 | Trace a feature from requirement to code | [Specs](docs/specs/) → [Issues](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues?q=is%3Aissue) → [pull requests](https://github.com/SanjuktaDavuluri/simple-url-shortener/pulls?q=is%3Apr) → commits. Each PR says `Closes #n` |
 | See how it is tested | [Integration-testing plan](docs/plans/0001-integration-testing.md) (traceability matrix, [spec 0003 coverage](docs/plans/0001-integration-testing.md#spec-0003-coverage), [spec 0004 coverage](docs/plans/0001-integration-testing.md#spec-0004-coverage)) · `src/test/` · [browser checks](e2e/README.md) · [CI workflow](.github/workflows/ci.yml) |
 | Run it or contribute | [Quick start](#quick-start) below · [onboarding guide](docs/onboarding.md) |
+| Operate it | [Runbook](docs/runbook.md): start, check, diagnose, stop, configuration and metrics references |
 | See the working rules the team (and Claude Code) follow | [`CLAUDE.md`](CLAUDE.md): project charter |
 
 ## Two planes: the product and how it is delivered
