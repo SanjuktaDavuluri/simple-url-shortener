@@ -21,6 +21,8 @@ class Settings:
     # Exit Gate commands, run inside a Lane's worktree (never the engineer's checkout)
     verify_command: str = "scripts/with-jdk.sh ./mvnw -B -q verify"  # finds JDK 25 itself
     web_paths: str = "src/main/resources/templates/,src/main/resources/static/"
+    # Documents every Lane appends rows to: a conflict only in these is merged row by row (#77)
+    shared_docs: str = "README.md,docs/plans/0001-integration-testing.md"
     app_start_command: str = "scripts/local.sh start"
     app_stop_command: str = "scripts/local.sh stop"
     browser_check_command: str = "cd e2e && npm ci --silent && npm run browser-checks"

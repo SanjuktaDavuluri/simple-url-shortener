@@ -217,3 +217,34 @@ def test_a_conflicting_pr_gets_no_merge_approval_until_resolved(
     orchestrate("resume", "R-0001")
 
     assert asked(t2) == 1
+
+
+def test_sibling_lanes_appending_to_the_shared_docs_merge_without_a_pause(
+    orchestrate: Orchestrate, github: InMemoryGitHub, agent: ScriptedAgent, repo: Path, plan: Plan
+) -> None:
+    """#77: a conflict only in the shared documents is merged row by row; the PR takes main in."""
+    plan_path = "docs/plans/0001-integration-testing.md"
+    table = "| Ticket | Check | Status |\n|---|---|---|\n| #1 | existing | ☐ |\n"
+    (repo / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+    (repo / plan_path).write_text(table)
+    git(repo, "add", plan_path)
+    git(repo, "commit", "-qm", "docs: plan table")
+    git(repo, "push", "-q", "origin", "main")
+    agent.script["implement:T1"] = [
+        writes({"feature.txt": "x\n", plan_path: table + "| #100 | from T1 | ☐ |\n"})
+    ]
+    agent.script["implement:T2"] = [
+        writes({"feature.txt": "x\n", plan_path: table + "| #101 | from T2 | ☐ |\n"})
+    ]
+    plan(T1, T2)
+    orchestrate("resume", "R-0001")
+    merge(repo, github, lane_pr(github, "T1") or 0)
+
+    orchestrate("resume", "R-0001")
+
+    assert not [e for e in of_type(repo, "paused") if e["data"].get("lane") == "T2"]
+    [merged] = of_type(repo, "conflict_merged_by_rows")
+    assert merged["data"]["lane"] == "T2" and merged["data"]["files"] == [plan_path]
+    on_t2 = on_remote(repo, github.pr(lane_pr(github, "T2") or 0).head, plan_path)
+    assert "| #100 | from T1 |" in on_t2 and "| #101 | from T2 |" in on_t2
+    assert "<<<<<<<" not in on_t2
