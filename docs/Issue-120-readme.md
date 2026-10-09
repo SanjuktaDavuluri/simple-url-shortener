@@ -1,33 +1,29 @@
-# Ticket #120: Domain and Click metrics in Prometheus
+# Issue #120: Domain and Click metrics in Prometheus
 
 ## What operators now see and do
 
-### Metrics endpoint
-- **New endpoint:** `GET /actuator/prometheus` on the management port (default `8081`).
-- Prometheus-format metrics are scraped here.
+### Query the metrics endpoint
+- **GET `/actuator/prometheus` on the management port** (default `8081`) returns all metrics in Prometheus text format.
+- Metrics can be scraped by a Prometheus server, used in dashboards, and alerted on (queries in the runbook).
 
-### Domain metrics
-Operators can now monitor:
-- **`shortener_links_total`** – count of Links created (counter).
-- **`shortener_redirects_total`** (tagged by `outcome`: `found` or `not_found`) – Redirects served.
-- **`shortener_rejections_total`** (tagged by `rule`: e.g., `self_link`, `http_scheme`) – Link creations rejected by each Rule.
-- **`shortener_collisions_total`** – Short Code collisions retried.
+### Domain metrics: product usage and abuse detection
+- **`shortener_links_total`** – cumulative Links created.
+- **`shortener_redirects_total`** with tag `outcome="found"` – successful Redirects (the hot path).
+- **`shortener_redirects_total`** with tag `outcome="not_found"` – 404s on unknown Short Codes.
+- **`shortener_rejections_total`** with tag `rule` (values: `self_link`, `well_formed`, `http_scheme`, `host_present`, `max_length`) – Link creations rejected by each Rule. Spikes in a rule suggest abuse or misconfiguration.
+- **`shortener_collisions_total`** – Short Code collisions encountered (rare; a spike signals the Short Code space is filling up).
 
-### Click metrics
-- **`shortener_clicks.recorded`** – Clicks saved to the database.
-- **`shortener_clicks.dropped`** – Clicks lost because the queue was full or a batch failed.
-- **`shortener_clicks.pending`** – Clicks queued, not yet saved (shows when the queue is building up).
-- **`shortener_clicks.queue.capacity`** – configured queue size, helps detect saturation.
+### Click metrics: verify Click recording is working
+- **`shortener_clicks_recorded_total`** – Clicks successfully saved.
+- **`shortener_clicks_dropped_total`** – Clicks lost (queue full or batch write failed). **Should stay zero or very low.**
+- **`shortener_clicks_pending`** – Clicks currently queued, not yet written. **Spikes when the database can't keep up.**
+- **`shortener_clicks_queue_capacity`** – the configured queue size (context from `CLICK_QUEUE_CAPACITY`).
 
-### Standard metrics
-- HTTP request rate, latency and error counts per route (`http.server.requests` with `uri`, `method`, `status`).
-- JVM metrics (memory, threads, garbage collection).
-- Hikari connection pool metrics (active, idle, pending connections).
+### Standard metrics (from Spring and JVM)
+- **`http_server_requests_seconds`** – histogram of request latency per route (tagged by `uri` pattern like `/{shortCode}`). Observe Redirect latency separately from Link creation.
+- **`jvm_memory_used_bytes`**, JVM thread counts, garbage collection times.
+- **`hikaricp_connections`** (active, idle, pending) – the SQLite connection pool (bounded by `JdbcClient` configuration, see ADR 0021).
 
-### Integration with logs
-- Every log line written while handling a request carries a `request_id` field linking it to the response's `X-Request-Id` header.
-- Operators can correlate metrics spikes with specific requests by matching Request IDs.
-
-### No sensitive data in tags
-- No Short Code, Long URL, host or Rejection Reason appears as a metric tag, keeping cardinality bounded.
-- The Click queue capacity is published so operators can see when Click loss is imminent (when `pending` approaches `capacity`).
+### Privacy: no sensitive data in metrics
+- No Short Code, Long URL, referrer host or Rejection Reason appears in any metric tag — counts only.
+- Metric cardinality stays bounded and safe for long-term monitoring.
