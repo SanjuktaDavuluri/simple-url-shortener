@@ -319,6 +319,7 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #187 | **Content checks (spec 0008 stories 8, 13):** the generated definition contains exactly the three public operations (`POST /links`, `GET /{short_code}`, `GET /links/{short_code}/stats`) with no actuator paths, no web page or static resources; each operation lists its documented status codes (201/400/422/503, 302/404/410, 200/404 respectively); the Stats operation declares the Bearer scheme, the other two don't | `OpenApiDriftIT` → `theDefinitionHasExactlyTheThreePublicOperationsWithTheDocumentedStatuses` | ☑ #187 |
 | #187 | **Content checks (spec 0008 story 12):** examples in the generated definition contain no real-looking tokens, referrer hosts or user agents; reserved domains like `example.com` are used | `OpenApiDriftIT` → `noExampleLooksLikeARealTokenReferrerOrUserAgent` | ☑ #187 |
 | #187 | **Documentation:** `docs/Issue-187-readme.md` summarises what users and reviewers now see or do with the drift test and content checks for the OpenAPI definition | `docs/Issue-187-readme.md`; this plan (these rows) | ☑ #187 |
+| #188 | **Documentation (spec 0008 story 6):** README and `docs/onboarding.md` link to `docs/api/openapi.yaml` and describe the regeneration command; spec 0008 added to `docs/specs/README.md`; `docs/roadmap.md` R21 updated with spec 0008, implementation tickets, ADRs and design decisions; `docs/Issue-188-readme.md` summarises what users and reviewers see or do | Review check: links in README and onboarding guide; spec added to specs README; roadmap R21 shows spec and tickets | ☐ #188 |
 
 Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 
@@ -441,6 +442,16 @@ Every user story in [spec 0005](../specs/0005-click-stats-per-link.md) and the t
 | 10 | A malformed `BASE_URL` exits non-zero naming the variable | `scripts/container-test.sh` (misconfiguration check) |
 | 16, 18, 29 | `compose.yaml` is valid and passes exactly the runbook's documented settings | `ComposeFileTest` → `composePassesNoSettingTheRunbookDoesNotDocument`, `composePassesEverySettingTheRunbookDocumentsExceptTheFixedOnes`, `driftIsDetectedInBothDirections`, `dockerComposeConfigValidates` |
 | 19, 26, 27, 28 | Runbook container section, onboarding steps, this matrix | Documents: `docs/runbook.md`, `docs/onboarding.md`, this plan |
+
+### Spec 0008 coverage (OpenAPI tickets, #184)
+
+| Story | Claim | Proven by |
+|---|---|---|
+| 7, 8, 9, 10, 11 | The committed `docs/api/openapi.yaml` equals the definition generated from the code, deterministically; the failure names `scripts/openapi.sh` | `OpenApiDriftIT` → `theCommittedDefinitionEqualsTheGeneratedOne`; `OpenApiDefinitionIT` → `theGeneratedDefinitionDescribesCreatingALinkAndIsDeterministic` |
+| 1–5, 13 | Content: exactly the three public operations with the documented statuses, the Bearer scheme on Stats only, one shared Stats `404` | `OpenApiDriftIT` → `theDefinitionHasExactlyTheThreePublicOperationsWithTheDocumentedStatuses` |
+| 12 | No example resembles a real token, referrer or user agent | `OpenApiDriftIT` → `noExampleLooksLikeARealTokenReferrerOrUserAgent` |
+| 14 | The public port exposes no API-docs or documentation UI path | `OpenApiDefinitionIT` → `thePublicPortExposesNoApiDocsAndNoDocumentationUi` |
+| 6 | README and onboarding link the definition and the regeneration command | Documents: `README.md`, `docs/onboarding.md`, this plan |
 
 ## 6. Entry and exit criteria
 
