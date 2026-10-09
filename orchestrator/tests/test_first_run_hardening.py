@@ -10,6 +10,7 @@ from test_lane_end_to_end import git, lane_script, merge, on_remote, through_doc
 
 from conftest import Orchestrate
 from fakes import InMemoryGitHub, ScriptedAgent
+from orchestrator.github import Check
 
 
 def events(repo: Path) -> list[dict[str, Any]]:
@@ -171,3 +172,48 @@ def test_a_conflict_with_main_pauses_the_lane_naming_the_files(
         on_remote(repo, github.pr(lane_pr(github, "T2") or 0).head, "shared.txt")
         == "from T1 and T2\n"
     )
+
+
+def test_a_conflicting_pr_gets_no_merge_approval_until_resolved(
+    orchestrate: Orchestrate, github: InMemoryGitHub, agent: ScriptedAgent, repo: Path, plan: Plan
+) -> None:
+    """#76: the conflict check runs before the merge approval is asked for."""
+    github.default_checks = (Check("Verify", "pending", ""),)
+    agent.script["implement:T1"] = [writes({"feature.txt": "x\n", "shared.txt": "from T1\n"})]
+    agent.script["implement:T2"] = [writes({"feature.txt": "x\n", "shared.txt": "from T2\n"})]
+    plan(T1, T2)
+    orchestrate("resume", "R-0001")  # both PRs open, checks still running
+    t1, t2 = lane_pr(github, "T1") or 0, lane_pr(github, "T2") or 0
+    opened = {e["data"]["pr"]: e["data"]["sha"] for e in of_type(repo, "pr_opened")}
+    github.set_checks(t1, opened[t1], Check("Verify", "success", ""))
+    orchestrate("resume", "R-0001")
+    merge(repo, github, t1)
+    github.set_checks(t2, opened[t2], Check("Verify", "success", ""))
+
+    orchestrate("resume", "R-0001")
+
+    def asked(pr: int) -> int:
+        return len(
+            [
+                e
+                for e in of_type(repo, "approval_requested")
+                if e["data"]["checkpoint"] == f"merge:{pr}"
+            ]
+        )
+
+    [paused] = [e for e in of_type(repo, "paused") if e["data"].get("lane") == "T2"]
+    assert asked(t2) == 0  # a PR that can't merge is never offered for merging
+    reason = paused["data"]["reason"]
+    assert ".orchestrator/worktrees/R-0001-101" in reason and str(repo) not in reason
+
+    tree = repo / ".orchestrator" / "worktrees" / "R-0001-101"
+    git(tree, "merge", "-q", "origin/main", "-m", "chore: merge main (#101)", check=False)
+    (tree / "shared.txt").write_text("from T1 and T2\n")
+    git(tree, "add", ".")
+    git(tree, "commit", "-qm", "chore: resolve shared.txt with main (#101)")
+    orchestrate("resume", "R-0001")  # pushes the resolution; its checks run again
+    sha = [e["data"]["sha"] for e in of_type(repo, "pr_updated") if e["data"]["pr"] == t2][-1]
+    github.set_checks(t2, sha, Check("Verify", "success", ""))
+    orchestrate("resume", "R-0001")
+
+    assert asked(t2) == 1
