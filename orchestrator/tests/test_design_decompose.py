@@ -394,6 +394,39 @@ def test_approved_tickets_are_published_in_dependency_order(
     assert stage_state(out, "decompose") == "passed"
 
 
+def test_a_publish_that_fails_after_creating_an_issue_creates_no_duplicate_on_retry(
+    orchestrate: Orchestrate,
+    github: InMemoryGitHub,
+    agent: ScriptedAgent,
+    repo: Path,
+    approved_spec: Callable[[], None],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R-0003 (#114): the board add for the second Issue hit a rate limit after it was created."""
+    no_adr_then(orchestrate, agent, breakdown(list(reversed(TICKETS))))
+    approved_spec()
+    add_to_board = github.add_to_board
+
+    def rate_limited_once(issue: int, fields: dict[str, str]) -> None:
+        if len(github.created) == 2 and issue not in github.board:
+            monkeypatch.setattr(github, "add_to_board", add_to_board)
+            raise RuntimeError("API rate limit exceeded")
+        add_to_board(issue, fields)
+
+    monkeypatch.setattr(github, "add_to_board", rate_limited_once)
+    with pytest.raises(RuntimeError):
+        orchestrate("approve", "R-0001", "tickets")
+
+    code, out = orchestrate("resume", "R-0001")
+
+    assert code == 0, out
+    t1, t2, t3 = github.created  # each Issue created once
+    assert all(github.board[n]["Status"] == "Todo" for n in (t1, t2, t3))
+    assert github.blocked_by == {t2: [t1], t3: [t1]}
+    [published] = of_type(repo, "tickets_published")
+    assert published["data"]["issues"] == {"T1": t1, "T2": t2, "T3": t3}
+
+
 def test_rejecting_the_breakdown_revises_it_before_anything_is_published(
     orchestrate: Orchestrate,
     github: InMemoryGitHub,
