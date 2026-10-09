@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Link stats · Simple URL Shortener</title>
+  <meta name="description" content="See how many people used a short link you made.">
+  <meta name="theme-color" content="#f5f5fa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#101018" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/css/app.css">
+  <!--/* HTMX doesn't swap 4xx/5xx responses by default; swap the not-found form (404) so its
+         message appears inline (ADR 0006). */-->
+  <meta name="htmx-config" content='{"responseHandling": [{"code": "204", "swap": false}, {"code": "[23]..", "swap": true}, {"code": "404", "swap": true}, {"code": "[45]..", "swap": false, "error": true}]}'>
+  <script src="/js/htmx-2.0.11.min.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#short_code">Skip to the Short Code field</a>
+  <header class="site-header">
+    <a class="brand" href="/">
+      <img src="/favicon.svg" alt="" width="28" height="28">
+      Simple URL Shortener
+    </a>
+  </header>
+  <main id="main">
+    <h1>Link stats</h1>
+    <p class="lede">Enter a Short Code and its manage token to see how a link is used.</p>
+    <div th:replace="~{fragments/stats :: stats}"></div>
+  </main>
+  <footer class="site-footer">
+    <p>Built in the open as an SDLC case study ·
+      <a href="https://github.com/SanjuktaDavuluri/simple-url-shortener">Source on GitHub</a></p>
+  </footer>
+</body>
+</html>

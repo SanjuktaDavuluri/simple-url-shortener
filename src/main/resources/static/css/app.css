@@ -309,3 +309,46 @@ button:hover {
     transition: filter 120ms ease;
   }
 }
+
+.stats-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: var(--space-4) 0;
+}
+
+.stats-figures dt {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.stats-figures dd {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.long-url {
+  overflow-wrap: anywhere;
+}
+
+.per-day {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.per-day th,
+.per-day td {
+  padding: var(--space-1) var(--space-2);
+  text-align: start;
+  border-bottom: 1px solid var(--border);
+}
+
+.per-day .bar {
+  width: 100%;
+  height: 0.75rem;
+}
+
+.stats-link {
+  margin: var(--space-3) 0 0;
+}

@@ -50,7 +50,7 @@
                 aria-label="Copy the Manage Token" hidden>Copy</button>
       </div>
       <p id="manage-token-note" class="hint">Keep this safe: it's the only way to see this Link's stats, and it won't be shown again.</p>
-    </div></div>
+    </div><p class="stats-link" th:if="${link != null}"><a data-stats-link th:href="@{/stats(short_code=${link.shortCode()})}">See its stats</a></p></div>
 </section>
 </body>
 </html>
