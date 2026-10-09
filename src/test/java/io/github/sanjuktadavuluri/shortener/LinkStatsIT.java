@@ -362,7 +362,10 @@ class LinkStatsIT extends IntegrationTest {
     Map<String, Object> seen = new LinkedHashMap<>();
     seen.put("status", response.getStatus());
     for (String name : response.getHeaderNames()) {
-      seen.put("header " + name, response.getHeaders(name));
+      // Every response carries its own Request ID (spec 0006); it says nothing about the Link.
+      if (!name.equalsIgnoreCase("X-Request-Id")) {
+        seen.put("header " + name, response.getHeaders(name));
+      }
     }
     // ISO-8859-1 maps every byte to one character, so equal strings mean equal bytes.
     seen.put("body", new String(response.getContentAsByteArray(), StandardCharsets.ISO_8859_1));
