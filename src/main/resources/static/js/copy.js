@@ -13,7 +13,8 @@
     });
   }
 
-  // Copy the Short URL and confirm visibly, and to screen readers via the status region.
+  // Copy the button's value (the Short URL, or the Manage Token) and confirm visibly, and to
+  // screen readers via the status region. A button can name what it copied in data-copied.
   document.addEventListener("click", function (event) {
     var button = event.target.closest("button[data-copy]");
     if (!button) {
@@ -22,7 +23,7 @@
     navigator.clipboard.writeText(button.dataset.copy).then(function () {
       var label = button.textContent;
       button.textContent = "Copied ✓";
-      announce("Short URL copied to the clipboard.");
+      announce(button.dataset.copied || "Short URL copied to the clipboard.");
       setTimeout(function () {
         button.textContent = label;
       }, 2000);

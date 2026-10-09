@@ -13,7 +13,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
-/** Issue #7: the web page enhanced with HTMX (ADR 0006); the no-JS path is covered by WebPageIT. */
+/**
+ * Issue #7: the web page enhanced with HTMX (ADR 0006); the no-JS path is covered by WebPageIT.
+ * Issue #106: the fragment carries the Manage Token panel (spec 0005, stories 3 and 7).
+ */
 class WebPageHtmxIT extends IntegrationTest {
 
   @Test
@@ -44,8 +47,46 @@ class WebPageHtmxIT extends IntegrationTest {
   }
 
   @Test
+  void anHtmxRequestReceivesOnlyTheFragmentWithTheManageTokenPanelAndIsNotCached() {
+    shortCodes.willReturn("Ab3xK9q");
+    manageTokens.willReturn(WebPageIT.SCRIPTED);
+
+    MvcTestResult response = submit("https://example.com/very/long", true);
+
+    assertThat(response).hasStatus(200).hasHeader("Cache-Control", "no-store");
+    Document fragment = Jsoup.parseBodyFragment(body(response));
+    assertThat(fragment.select("h1, title, script")).isEmpty();
+    assertThat(fragment.body().children()).hasSize(1);
+    assertThat(fragment.body().child(0).id()).isEqualTo("shortener");
+    WebPageIT.assertManageTokenPanel(fragment, WebPageIT.SCRIPTED);
+  }
+
+  @Test
+  void aRejectionComesBackAsAFragmentWithNoManageTokenPanel() {
+    manageTokens.willReturn(WebPageIT.SCRIPTED);
+
+    MvcTestResult response = submit("ftp://example.com/file", true);
+
+    assertThat(response).hasStatus(422);
+    WebPageIT.assertNoManageTokenPanel(Jsoup.parseBodyFragment(body(response)));
+    assertThat(body(response)).doesNotContain(WebPageIT.SCRIPTED);
+  }
+
+  @Test
+  void anInvalidLifetimeComesBackAsAFragmentWithNoManageTokenPanel() {
+    manageTokens.willReturn(WebPageIT.SCRIPTED);
+
+    MvcTestResult response = submit("https://example.com/very/long", "abc", true);
+
+    assertThat(response).hasStatus(422);
+    WebPageIT.assertNoManageTokenPanel(Jsoup.parseBodyFragment(body(response)));
+    assertThat(body(response)).doesNotContain(WebPageIT.SCRIPTED);
+  }
+
+  @Test
   void theFragmentAndTheFullPageRenderTheSameMarkup() {
     shortCodes.willReturn("Ab3xK9q", "Zz9yX8w");
+    manageTokens.willReturn(WebPageIT.SCRIPTED, WebPageIT.SCRIPTED);
     String fromHtmx =
         Jsoup.parseBodyFragment(body(submit("https://example.com/x", true)))
             .getElementById("shortener")
@@ -166,6 +207,7 @@ class WebPageHtmxIT extends IntegrationTest {
   @ValueSource(strings = {"30", "abc"})
   void theFragmentAndTheFullPageRenderTheSameMarkupForALifetime(String days) {
     shortCodes.willReturn("Ab3xK9q", "Zz9yX8w");
+    manageTokens.willReturn(WebPageIT.SCRIPTED, WebPageIT.SCRIPTED);
     String fromHtmx =
         Jsoup.parseBodyFragment(body(submit("https://example.com/x", days, true)))
             .getElementById("shortener")
