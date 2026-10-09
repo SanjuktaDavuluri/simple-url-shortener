@@ -19,8 +19,10 @@ flowchart LR
 
     subgraph RUN["Product plane: runtime (Java service), always on"]
         SVC["Shortener service<br/>java -jar, scripts/local.sh, container"]
+        IMG["Container image (Dockerfile, multi-stage)<br/>JRE 25 + jar, non-root, /data volume<br/>Readiness health check, docker compose up"] -.->|"packages"| SVC
     end
 
+    MAIN -->|"CI builds and tests the image, never pushes it"| IMG
     MAIN -->|"build and deploy: a separate step, not the orchestrator"| SVC
     USERS(["End users"]) --> SVC
     ORCH -.-x|"never connects"| SVC

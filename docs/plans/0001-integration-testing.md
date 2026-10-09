@@ -295,6 +295,11 @@ How we prove that the parts of the shortener work **together**, across real boun
 | #174 | **Compose validation (spec 0007 story 29):** the CI job runs `docker compose config` to check that `compose.yaml` is syntactically valid | `orchestrator/tests/test_ci_container_job.py` → `test_container_job_runs_container_tests_on_own_port` (checks for `docker compose config` in the workflow); `ComposeFileTest` validates environment variable drift | ☑ #174 |
 | #174 | **Test triggering (spec 0007 story 20):** pull requests trigger the container job; CI stays green when the job is added without changing the required check names | `orchestrator/tests/test_ci_container_job.py` → `test_pull_requests_trigger_the_workflow`; CI passing with the new job on the PR | ☑ #174 |
 | #174 | **Documentation:** `docs/Issue-174-readme.md` summarises what operators and reviewers see in each PR and what the smoke test does | `docs/Issue-174-readme.md`; this plan (these rows) | ☑ #174 |
+| #175 | **Runbook (spec 0007 story 26):** container section covers building with `docker build`, running with `docker compose up`, the `/data` volume for database persistence, health check on management port with start-up time, graceful stop and SIGTERM handling, and configuration reference marks container-applicable settings | `docs/runbook.md` section "Container"; review check: all container topics present | ☐ #175 |
+| #175 | **Onboarding (spec 0007 story 27):** container build and run steps, local smoke-test run (`scripts/container-test.sh`), CI container job overview, and code tour names the Dockerfile and related concepts | `docs/onboarding.md` container subsections; code tour | ☐ #175 |
+| #175 | **Architecture (spec 0007 stories 26–29):** Mermaid diagrams for creation and redirect flows remain unchanged; container deployment path shown informational, never blocking | `docs/architecture.md` (unchanged where not container-specific) | ☐ #175 |
+| #175 | **Roadmap and spec index (spec 0007 implementation):** R11 (`#171`) shows spec 0007 dockerize as in-progress; R12 expected for follow-up; spec 0007 added to `docs/specs/README.md` | `docs/roadmap.md` R11 and R12; `docs/specs/README.md` | ☐ #175 |
+| #175 | **P5 integration test phase (spec 0007 stories 20–28):** Phase P5 (Container smoke) complete with container rows (#172–#174) in section 5 matrix and exit criterion met: container tests green in CI, documented in onboarding and runbook | This plan sections 4 and 5; `docs/Issue-175-readme.md` | ☐ #175 |
 
 Rows are filled in (☐ → ☑ with the PR link) as each ticket's PR merges.
 
@@ -408,6 +413,15 @@ Every user story in [spec 0005](../specs/0005-click-stats-per-link.md) and the t
 | 18, 29, 30 | Every environment variable in `application.properties` is in the runbook's configuration table, so the reference can't drift | `ConfigurationReferenceTest` → `everyEnvironmentVariableInApplicationPropertiesIsInTheRunbooksConfigurationTable`, `placeholderNamesAreCollectedFromEveryLine`. Shown red by adding an undocumented `${NAME:` placeholder |
 | 18, 36, 39–41 | The runbook has start, check, diagnose, stop, configuration, metrics, data files, logging and exposure sections; every spec metric with name, type, tags and meaning; the stop bound | Document: `docs/runbook.md` |
 | 42, 43 | Impact analysis; each criterion traced to a test | Document: spec 0006 *Impact Analysis*; this table. The other spec 0006 stories are traced by their own tickets' rows (#116 onward) |
+
+### Spec 0007 coverage (container tickets, #171)
+
+| Story | Claim | Proven by |
+|---|---|---|
+| 1, 6, 7, 8, 12, 13, 21, 22 | The built image becomes healthy, creates and follows a Link, keeps data across a restart on the same volume, runs as non-root, and stops with exit `0` within the bound | `scripts/container-test.sh` (black-box against the image); run in CI by the **Container (image build + container tests)** job, not a required check |
+| 10 | A malformed `BASE_URL` exits non-zero naming the variable | `scripts/container-test.sh` (misconfiguration check) |
+| 16, 18, 29 | `compose.yaml` is valid and passes exactly the runbook's documented settings | `ComposeFileTest` → `composePassesNoSettingTheRunbookDoesNotDocument`, `composePassesEverySettingTheRunbookDocumentsExceptTheFixedOnes`, `driftIsDetectedInBothDirections`, `dockerComposeConfigValidates` |
+| 19, 26, 27, 28 | Runbook container section, onboarding steps, this matrix | Documents: `docs/runbook.md`, `docs/onboarding.md`, this plan |
 
 ## 6. Entry and exit criteria
 

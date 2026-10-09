@@ -55,16 +55,29 @@ The log shows `Shutdown started` and `Shutdown complete`; the second carries the
 
 **The bound:** `SHUTDOWN_TIMEOUT` + `CLICK_SHUTDOWN_TIMEOUT` + pool close, which is **about 20 s with the defaults** (10 s + 10 s, plus a few seconds). Set your process manager's or container's stop grace period **above** it (30 s recommended). Docker's default 10 s would cut the Click flush short.
 
+## Run the container
+
+The image is a delivery of the service, never a deployment ([spec 0007](specs/0007-dockerize.md)): nothing here pushes it anywhere. The runtime image holds a JRE 25 and the jar only, and runs as a non-root user.
+
+- **Build:** `docker build -t shortener .` (no Java or Maven needed on the machine).
+- **Run:** `docker compose up` builds if needed and starts one service on <http://localhost:8000>. **The default host ports are `8000` and `8081`, the same as `scripts/local.sh`, so a plain `docker compose up` fails to bind while a local service is running.** To run beside it, move both host ports and match `BASE_URL`: `HOST_PORT=8765 HOST_MANAGEMENT_PORT=8846 BASE_URL=http://localhost:8765 docker compose up` (the container's own ports are unchanged). `HOST_PORT` and `HOST_MANAGEMENT_PORT` move only the host side of the published ports; another public port with matching Short URLs also needs `PORT`, for example `BASE_URL=http://localhost:9000 PORT=9000 HOST_PORT=9000 HOST_MANAGEMENT_PORT=9081 docker compose up`.
+- **Volume:** the SQLite database and its WAL files live in `/data/links.db` (the image sets `DATABASE_PATH`), on the named volume `data`. An empty volume is initialised by Flyway on first start; an existing one is used as is.
+- **Bind-mount ownership:** a named volume is initialised from the image's `/data`, which belongs to the non-root user. A bind mount (`-v /some/dir:/data`) is not: a directory owned by another user makes the service fail to open the database. `chown` it to the container user's id, or use a named volume.
+- **Health check:** Docker polls Readiness on the management port inside the container (`/actuator/health/readiness`), with a start period for a slow first start. `docker compose ps` shows `healthy` only when Readiness is `UP`; `unhealthy` means the database can't be reached or the Click queue is full ([Check](#check)). The management port is published to the host's loopback only (127.0.0.1).
+- **Stop:** `docker compose stop` (or `docker stop`) sends `SIGTERM` to the JVM, which starts the [graceful shutdown](#stop); the container exits with code 0. Compose sets a 30 s grace period, above the roughly 20 s bound.
+- **`down` vs `down -v`:** `docker compose down` removes the container and keeps the data volume. `docker compose down -v` also removes the volume, which deletes every Link: use it only to reset.
+- **Configuration:** the [reference below](#configuration-reference) applies unchanged; Compose passes every variable except `DATABASE_PATH` (fixed by the image) through from the environment with the same defaults. Logs go to standard output as JSON (`docker compose logs`).
+
 ## Configuration reference
 
-Every setting is an environment variable with a default. A test fails the build when `application.properties` reads a variable that isn't in this table.
+Every setting is an environment variable with a default; the same names configure the container ([Run the container](#run-the-container)). A test fails the build when `application.properties` reads a variable that isn't in this table.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `PORT` | `8000` | Public HTTP port |
 | `MANAGEMENT_PORT` | `8081` | Port for health and metrics. Keep it off the public network. `scripts/local.sh` defaults it to `PORT + 81` |
 | `BASE_URL` | `http://localhost:8000` | The public address; every Short URL starts with it, and links to it are rejected as Self-links. Must be an absolute `http`/`https` URL with no query or fragment; a trailing `/` is removed |
-| `DATABASE_PATH` | `links.db` | The SQLite database file; Flyway creates the schema on startup. See [data files](#data-files-and-backup) |
+| `DATABASE_PATH` | `links.db` (container: `/data/links.db`, set by the image) | The SQLite database file; Flyway creates the schema on startup. See [data files](#data-files-and-backup) |
 | `CLICK_QUEUE_CAPACITY` | `10000` | Most Clicks waiting in the Click Recorder's queue; a Click arriving when it is full is dropped and counted ([ADR 0012](adr/0012-clicks-recorded-asynchronously.md)) |
 | `CLICK_BATCH_SIZE` | `500` | Most Clicks saved in one batch (one transaction). Must not exceed the capacity |
 | `CLICK_FLUSH_INTERVAL` | `1s` | Longest the writer waits for a batch to fill; a Click is stored about this long after its Redirect |
