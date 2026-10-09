@@ -34,7 +34,7 @@ The rest of this document describes the product plane. The orchestrator's stage 
 
 The code generator takes **no input**; it never sees the long URL (ADR 0003). The database's uniqueness constraint is the final guarantee against duplicate codes. Shortening the same URL twice creates two independent links.
 
-Since [spec 0004](specs/0004-expiring-links.md) the request may carry an optional **Lifetime** (`expires_in_days`, a whole number of days from 1 to 365). The request is checked in order: its shape (a malformed request), then the Lifetime (a validation message, not a Rejection Reason, because Lifetime is not a Rule), then the Rule Set. `LinkService` turns the Lifetime into a fixed **Expiry**: the creation instant from the injected `Clock` plus the Lifetime in exact 24-hour days, in UTC. The Link Store saves it in the nullable `links.expires_at` column (Flyway `V3__add_link_expiry.sql`); a Link created without a Lifetime stores `NULL` and never expires. The `201` always carries `expires_at`. The web page (`POST /`) uses the same `LinkService` path, so the two entry points can't drift. The Manage Token that the `201` also carries since #104 ([spec 0005](specs/0005-click-stats-per-link.md)) is left out of this diagram.
+Since [spec 0004](specs/0004-expiring-links.md) the request may carry an optional **Lifetime** (`expires_in_days`, a whole number of days from 1 to 365). The request is checked in order: its shape (a malformed request), then the Lifetime (a validation message, not a Rejection Reason, because Lifetime is not a Rule), then the Rule Set. `LinkService` turns the Lifetime into a fixed **Expiry**: the creation instant from the injected `Clock` plus the Lifetime in exact 24-hour days, in UTC. The Link Store saves it in the nullable `links.expires_at` column (Flyway `V3__add_link_expiry.sql`); a Link created without a Lifetime stores `NULL` and never expires. The `201` always carries `expires_at`. The web page (`POST /`) uses the same `LinkService` path, so the two entry points can't drift. The Manage Token that the `201` also carries is left out of this diagram; it has its own flow in [Create with a Manage Token, and read Stats](#create-with-a-manage-token-and-read-stats).
 
 ```mermaid
 sequenceDiagram
@@ -75,6 +75,41 @@ sequenceDiagram
                 API-->>Client: 503 Service Unavailable
             end
         end
+    end
+```
+
+### Create with a Manage Token, and read Stats
+
+[Spec 0005](specs/0005-click-stats-per-link.md), [ADR 0014](adr/0014-creator-only-stats-via-manage-token.md), [ADR 0023](adr/0023-manage-token-hashed-with-sha-256.md). `LinkService.create` draws a **Manage Token** (32 random bytes, 43 base64url characters) once the Rule Set has passed, stores only its SHA-256 hash in `links.manage_token_hash` (Flyway `V4`, nullable) and returns the token in the `201` with `Cache-Control: no-store`. It is never shown again. **Stats** are read with that token. Every failure (unknown Short Code, a Link with no token, a missing, malformed or wrong token) is the same `404`; the token is hashed and compared in constant time even for an unknown Short Code. Only after a match does the Click Store aggregate the Link's Clicks in SQL over one read transaction. The Redirect path is unchanged.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Creator
+    participant API as LinkController / StatsPageController
+    participant Svc as LinkService
+    participant LS as LinkStatsService
+    participant Links as Link Store
+    participant Clicks as Click Store
+
+    Creator->>API: POST /links {"url": "..."}
+    API->>Svc: create(url)
+    Svc->>Svc: Rule Set passes, draw Manage Token
+    Svc->>Links: save(code, url, sha256(token))
+    API-->>Creator: 201 {..., "manage_token"} (no-store, shown once)
+
+    Creator->>API: GET /links/code/stats + Bearer token (or POST /stats form)
+    API->>LS: statsFor(code, token)
+    LS->>Links: findForStats(code)
+    LS->>LS: hash token, constant-time compare (dummy hash if no Link or no hash)
+    alt no match
+        LS-->>API: empty
+        API-->>Creator: 404 (same for every case, no-store)
+    else match
+        LS->>Clicks: summarise(code, 30-day UTC window)
+        Clicks-->>LS: Click Summary (GROUP BY, one read transaction)
+        LS-->>API: Stats
+        API-->>Creator: 200 Stats (no-store, generated_at)
     end
 ```
 
@@ -147,7 +182,7 @@ flowchart LR
     D --> ST
     SD["Normal shutdown<br/>after the web server stops"] -->|"flush within<br/>CLICK_SHUTDOWN_TIMEOUT"| W
     SD -->|"still unsaved at the timeout"| D
-    CT -.->|"read path: list a Short Code's Clicks, oldest first"| S["R2 stats API (later)"]
+    CT -.->|"read path: list a Short Code's Clicks, oldest first"| S["Stats (LinkStatsService)"]
 ```
 
 ### SQLite concurrency (ADR 0021)
