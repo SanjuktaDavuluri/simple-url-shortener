@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.sanjuktadavuluri.shortener.clicks.Click;
 import io.github.sanjuktadavuluri.shortener.clicks.ClickStore;
 import io.github.sanjuktadavuluri.shortener.clicks.QueuedClickRecorder;
+import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -15,7 +16,10 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.web.server.LocalManagementPort;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -42,8 +46,12 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>Stored Clicks are observed through the Click Store, after flushing the Click Recorder (spec
  * 0003 seam 3; plan 0001 principle 1).
+ *
+ * <p>The application listens on real random ports: the public port, which MockMvc bypasses and
+ * {@link #getFromPublicPort} reaches, and the management port (spec 0006 seam 2), reached with
+ * {@link #getFromManagementPort}.
  */
-@SpringBootTest
+@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @Import({
   IntegrationTest.ScriptedCodes.class,
@@ -61,6 +69,10 @@ abstract class IntegrationTest {
   private static final JsonMapper JSON = JsonMapper.builder().build();
 
   @Autowired MockMvcTester mvc;
+
+  @LocalServerPort int publicPort;
+
+  @LocalManagementPort int managementPort;
 
   @Autowired ScriptedShortCodeGenerator shortCodes;
 
@@ -82,6 +94,8 @@ abstract class IntegrationTest {
     registry.add("shortener.database-path", DATABASE::toString);
     // Tests only: lets each test rebuild the schema from the migrations.
     registry.add("spring.flyway.clean-disabled", () -> "false");
+    // A random management port, never the maintainer's 8081 (spec 0006).
+    registry.add("management.server.port", () -> "0");
   }
 
   @BeforeEach
@@ -98,6 +112,16 @@ abstract class IntegrationTest {
   List<Click> storedClicks(String shortCode) {
     clickRecorder.flush();
     return clickStore.listClicks(shortCode);
+  }
+
+  /** {@code GET path} over plain HTTP on the management port (spec 0006 seam 2). */
+  HttpResponse<String> getFromManagementPort(String path) {
+    return PlainHttp.get(managementPort, path);
+  }
+
+  /** {@code GET path} over plain HTTP on the public port, through the real servlet container. */
+  HttpResponse<String> getFromPublicPort(String path) {
+    return PlainHttp.get(publicPort, path);
   }
 
   /** POSTs {@code {"url": longUrl}} to the API, serialised by Jackson. */

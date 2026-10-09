@@ -1,5 +1,6 @@
 package io.github.sanjuktadavuluri.shortener;
 
+import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,7 +23,9 @@ final class TestApps {
 
   private TestApps() {}
 
-  /** Starts the application on a random port against the given database file. */
+  /**
+   * Starts the application on random public and management ports against the given database file.
+   */
   static ConfigurableApplicationContext start(Path database, String... extraArguments) {
     return startWithEnvironment(database, Map.of(), extraArguments);
   }
@@ -52,6 +55,7 @@ final class TestApps {
       String... extraArguments) {
     List<String> arguments = new ArrayList<>();
     arguments.add("--server.port=0");
+    arguments.add("--management.server.port=0");
     arguments.add("--shortener.database-path=" + database);
     arguments.addAll(List.of(extraArguments));
     Map<String, Object> variables = new HashMap<>(System.getenv());
@@ -74,6 +78,19 @@ final class TestApps {
   /** The port a running instance's web server listens on. */
   static int port(ConfigurableApplicationContext app) {
     return Integer.parseInt(app.getEnvironment().getRequiredProperty("local.server.port"));
+  }
+
+  /** The port a running instance's management server listens on (spec 0006). */
+  static int managementPort(ConfigurableApplicationContext app) {
+    return Integer.parseInt(app.getEnvironment().getRequiredProperty("local.management.port"));
+  }
+
+  /**
+   * {@code GET path} over plain HTTP on a running instance's management port (spec 0006 seam 2).
+   */
+  static HttpResponse<String> getFromManagementPort(
+      ConfigurableApplicationContext app, String path) {
+    return PlainHttp.get(managementPort(app), path);
   }
 
   /** A {@link MockMvcTester} bound to a running instance. */

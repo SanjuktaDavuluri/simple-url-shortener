@@ -265,6 +265,14 @@ public final class QueuedClickRecorder implements ClickRecorder, SmartLifecycle 
     }
   }
 
+  /**
+   * The most Clicks the queue holds before new ones are dropped: readiness compares pending Clicks
+   * with it (spec 0006).
+   */
+  public int queueCapacity() {
+    return queueCapacity;
+  }
+
   @Override
   public void start() {
     lock.lock();
