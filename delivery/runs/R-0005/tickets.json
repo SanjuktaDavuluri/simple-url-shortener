@@ -1,0 +1,70 @@
+[
+  {
+    "key": "T1",
+    "title": "Container image: multi-stage Dockerfile, non-root, /data volume, Readiness health check, smoke script",
+    "kind": "Feature",
+    "what": "Add a multi-stage Dockerfile (Maven Wrapper build stage with cached dependency layer; JRE 25 runtime holding only the jar), a .dockerignore (.local/, target/, .git, e2e/node_modules), a dedicated non-root user, /data owned by that user with DATABASE_PATH=/data/links.db, exec-form ENTRYPOINT so the JVM is PID 1 and gets SIGTERM, and a HEALTHCHECK polling /actuator/health/readiness on the management port with a start period. Add scripts/container-test.sh, shared by developers and CI, that builds the image and drives it on a scratch port with a scratch volume, never touching the local service on port 8000.",
+    "acceptance": [
+      "`docker build` succeeds with no Java or Maven installed on the host, and the final image holds no JDK, Maven cache or source",
+      "Container reports healthy only when Readiness is UP; script waits for healthy",
+      "Script creates a Link and follows it (redirect), restarts the container on the same volume and follows it again",
+      "Script asserts the process user is not root (id -u != 0)",
+      "`docker stop` exits 0 within SHUTDOWN_TIMEOUT + CLICK_SHUTDOWN_TIMEOUT plus margin, with queued Clicks saved",
+      "Starting with a malformed BASE_URL exits non-zero with a message naming BASE_URL",
+      "Logs are JSON on stdout; the image is never pushed anywhere"
+    ],
+    "blocked_by": []
+  },
+  {
+    "key": "T2",
+    "title": "compose.yaml with environment pass-through, loopback management port and drift test",
+    "kind": "Feature",
+    "what": "Add compose.yaml: one service built from the Dockerfile, the /data named volume, configurable published host ports for the public port, the management port published to 127.0.0.1 only, and BASE_URL, PORT, CLICK_*, SHUTDOWN_TIMEOUT, LOG_FORMAT and the other settings passed from the environment with the runbook's configuration-reference defaults, and a stop_grace_period exceeding SHUTDOWN_TIMEOUT + CLICK_SHUTDOWN_TIMEOUT. Add a test that fails when compose.yaml's environment names and the runbook's configuration reference differ, modelled on spec 0006's drift test, plus a `docker compose config` validation.",
+    "acceptance": [
+      "`docker compose up` starts the service with working defaults",
+      "`BASE_URL=http://localhost:9000 PORT=9000 docker compose up` runs on another port and produces matching Short URLs",
+      "Host ports are configurable so a run need not collide with 8000/8081",
+      "Management port is bound to 127.0.0.1 only",
+      "`docker compose down` keeps the data volume; `down -v` removes it",
+      "Drift test fails if Compose passes a setting the runbook doesn't document, or vice versa",
+      "`docker compose config` validates the file"
+    ],
+    "blocked_by": [
+      "T1"
+    ]
+  },
+  {
+    "key": "T3",
+    "title": "CI: build the image and run the container tests",
+    "kind": "Test",
+    "what": "Extend .github/workflows/ci.yml with a separate, non-required job (name not one of the three required checks) that runs on every pull request, builds the image and runs scripts/container-test.sh and the Compose checks on its own port and a temporary volume. The three required job names stay unchanged; the image is never pushed.",
+    "acceptance": [
+      "The container job runs on every PR and fails if the Dockerfile build or any container check fails",
+      "The names 'Verify (format, compile, analysis, unit + integration tests)', 'Browser checks (Playwright + Lighthouse)' and 'Orchestrator (lint, types, tests)' are unchanged and the branch protection stays valid",
+      "The job uses its own port and a temporary volume and performs no push or deploy",
+      "Adding the job to branch protection is left to the maintainer's decision"
+    ],
+    "blocked_by": [
+      "T1",
+      "T2"
+    ]
+  },
+  {
+    "key": "T4",
+    "title": "Docs: runbook container section, onboarding, test matrix, architecture, roadmap and spec index",
+    "kind": "Docs",
+    "what": "Document running the container: in docs/runbook.md the build, docker compose up, /data volume (named volume vs bind-mount ownership), health check, stopping, down vs down -v, and the configuration reference marked for container use; in docs/onboarding.md building, running and reproducing the CI container test locally; add the container rows to the matrix in docs/plans/0001-integration-testing.md; add the container to the Mermaid diagram in docs/architecture.md; update roadmap R11 and the spec index in docs/specs/README.md and the spec status.",
+    "acceptance": [
+      "Runbook lets an operator build, run, diagnose and stop the container without the developers",
+      "Onboarding explains reproducing the CI container test locally",
+      "The integration-testing plan matrix includes the container tests",
+      "Architecture diagram shows the container packaging",
+      "Roadmap R11 and the spec index/status are updated, and the Compose drift test still passes against the runbook"
+    ],
+    "blocked_by": [
+      "T1",
+      "T2",
+      "T3"
+    ]
+  }
+]
