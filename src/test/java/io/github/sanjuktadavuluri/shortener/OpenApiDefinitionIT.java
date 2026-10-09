@@ -41,8 +41,22 @@ class OpenApiDefinitionIT extends IntegrationTest {
     assertThat(first)
         .contains("openapi: 3.1.0", "/links:", "post:", "\"201\"", "\"400\"", "\"422\"", "\"503\"")
         .contains("manage_token", "expires_in_days", "no-store", "example.com")
-        .doesNotContain("\r", "localhost", "/stats", "actuator", "http://localhost");
+        .doesNotContain("\r", "localhost", "actuator", "http://localhost");
     assertThat(unfolded(first)).contains("never in a url", "cannot be recovered");
+    assertThat(first)
+        .contains("/{short_code}:", "/links/{short_code}/stats:", "\"302\"", "\"410\"")
+        .contains("Location:", "bearerAuth", "scheme: bearer", "short_code", "top_referrer_hosts");
+    assertThat(first.split("\n  /", -1)).hasSize(4); // preamble + exactly three paths
+    assertThat(first.split("- bearerAuth", -1)).hasSize(2); // required on Stats only
+    String stats = first.substring(first.indexOf("/links/{short_code}/stats:"));
+    stats =
+        stats.substring(
+            0,
+            stats.indexOf("\n  /", 1) > 0
+                ? stats.indexOf("\n  /", 1)
+                : stats.indexOf("\ncomponents:"));
+    assertThat(stats.split("\"404\":", -1)).hasSize(2); // exactly one 404
+    assertThat(unfolded(stats)).contains("malformed", "empty token", "wrong token");
     if (Boolean.getBoolean("openapi.write")) {
       Files.createDirectories(COMMITTED.getParent());
       Files.writeString(COMMITTED, first, StandardCharsets.UTF_8);

@@ -46,8 +46,93 @@ paths:
       summary: Create a Link
       tags:
       - link-controller
+  /links/{short_code}/stats:
+    get:
+      description: Returns the Link's Click statistics. Requires the Link's Manage
+        Token.
+      operationId: stats
+      parameters:
+      - in: path
+        name: short_code
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: Authorization
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsBody"
+          description: The Link's stats.
+        "404":
+          content:
+            application/problem+json: {}
+          description: "No stats found. The same response for a missing or malformed\
+            \ Authorization header, an empty token, an unknown Short Code, a Link\
+            \ without a Manage Token and a wrong token."
+      security:
+      - bearerAuth: []
+      summary: Read a Link's stats
+      tags:
+      - link-stats-controller
+  /{short_code}:
+    get:
+      description: Redirects to the Long URL of the Link the Short Code names.
+      operationId: followLink
+      parameters:
+      - in: path
+        name: short_code
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: Referer
+        required: false
+        schema:
+          type: string
+      - in: header
+        name: User-Agent
+        required: false
+        schema:
+          type: string
+      responses:
+        "302":
+          description: Redirects to the Long URL.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              style: simple
+            Location:
+              description: The Long URL.
+              style: simple
+        "404":
+          description: Unknown Short Code.
+        "410":
+          content:
+            text/plain: {}
+          description: The Link has expired (Expired Link).
+      summary: Follow a Short URL (Redirect)
+      tags:
+      - link-controller
 components:
   schemas:
+    AgentCategories:
+      type: object
+      properties:
+        bot:
+          type: integer
+          format: int64
+        browser:
+          type: integer
+          format: int64
+        other:
+          type: integer
+          format: int64
     CreateLinkRequest:
       type: object
       properties:
@@ -90,3 +175,70 @@ components:
         short_url:
           type: string
           example: https://sho.rt.example/aB3dE5g
+    Day:
+      type: object
+      properties:
+        clicks:
+          type: integer
+          format: int64
+        date:
+          type: string
+    DeviceClasses:
+      type: object
+      properties:
+        desktop:
+          type: integer
+          format: int64
+        mobile:
+          type: integer
+          format: int64
+    ReferrerHost:
+      type: object
+      properties:
+        clicks:
+          type: integer
+          format: int64
+        host:
+          type: string
+    StatsBody:
+      type: object
+      properties:
+        bot_clicks:
+          type: integer
+          format: int64
+        by_agent_category:
+          $ref: "#/components/schemas/AgentCategories"
+        by_device_class:
+          $ref: "#/components/schemas/DeviceClasses"
+        clicks:
+          type: integer
+          format: int64
+        clicks_per_day:
+          type: array
+          items:
+            $ref: "#/components/schemas/Day"
+        created_at:
+          type: string
+        generated_at:
+          type: string
+        last_click_at:
+          type: string
+        long_url:
+          type: string
+        no_referrer_host:
+          type: integer
+          format: int64
+        short_code:
+          type: string
+        short_url:
+          type: string
+        top_referrer_hosts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReferrerHost"
+  securitySchemes:
+    bearerAuth:
+      description: "The Manage Token, returned only by the create response, sent as\
+        \ `Authorization: Bearer <manage_token>`. It is never sent in a URL."
+      scheme: bearer
+      type: http

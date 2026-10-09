@@ -156,6 +156,22 @@ class LinkController {
    * Click Recorder (spec 0004). The lookup stays a single query by primary key.
    */
   @GetMapping("/{short_code:[A-Za-z0-9]{7}}")
+  @Operation(
+      summary = "Follow a Short URL (Redirect)",
+      description = "Redirects to the Long URL of the Link the Short Code names.")
+  @ApiResponse(
+      responseCode = "302",
+      description = "Redirects to the Long URL.",
+      content = @Content,
+      headers = {
+        @Header(name = "Location", description = "The Long URL."),
+        @Header(name = "Cache-Control", description = "Always `no-store`.")
+      })
+  @ApiResponse(responseCode = "404", description = "Unknown Short Code.", content = @Content)
+  @ApiResponse(
+      responseCode = "410",
+      description = "The Link has expired (Expired Link).",
+      content = @Content(mediaType = "text/plain"))
   void followLink(
       @PathVariable("short_code") String shortCode,
       HttpMethod method,

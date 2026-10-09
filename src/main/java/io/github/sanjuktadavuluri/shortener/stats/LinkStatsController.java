@@ -3,6 +3,13 @@ package io.github.sanjuktadavuluri.shortener.stats;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.github.sanjuktadavuluri.shortener.clicks.AgentCategory;
 import io.github.sanjuktadavuluri.shortener.clicks.DeviceClass;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityScheme;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -34,6 +41,13 @@ import org.springframework.web.bind.annotation.RestController;
  * log line (story 21).
  */
 @RestController
+@SecurityScheme(
+    name = "bearerAuth",
+    type = SecuritySchemeType.HTTP,
+    scheme = "bearer",
+    description =
+        "The Manage Token, returned only by the create response, sent as `Authorization: Bearer"
+            + " <manage_token>`. It is never sent in a URL.")
 class LinkStatsController {
 
   /** The one body every failure gets: fixed bytes, with no request path or reason in it. */
@@ -58,9 +72,27 @@ class LinkStatsController {
     this.linkStats = linkStats;
   }
 
-  @GetMapping("/links/{shortCode:[A-Za-z0-9]{7}}/stats")
+  @GetMapping("/links/{short_code:[A-Za-z0-9]{7}}/stats")
+  @Operation(
+      summary = "Read a Link's stats",
+      description = "Returns the Link's Click statistics. Requires the Link's Manage Token.",
+      security = @SecurityRequirement(name = "bearerAuth"))
+  @ApiResponse(
+      responseCode = "200",
+      description = "The Link's stats.",
+      content =
+          @Content(
+              mediaType = "application/json",
+              schema = @Schema(implementation = StatsBody.class)))
+  @ApiResponse(
+      responseCode = "404",
+      description =
+          "No stats found. The same response for a missing or malformed Authorization header, an"
+              + " empty token, an unknown Short Code, a Link without a Manage Token and a wrong"
+              + " token.",
+      content = @Content(mediaType = "application/problem+json"))
   ResponseEntity<?> stats(
-      @PathVariable String shortCode,
+      @PathVariable("short_code") String shortCode,
       @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
     return bearerToken(authorization)
         .flatMap(token -> linkStats.statsFor(shortCode, token))
