@@ -9,6 +9,9 @@ const SHORT_URL = new RegExp('^' + BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
 // The Expiry under the Short URL (spec 0004), and the validation message for an invalid Lifetime.
 const EXPIRY_LINE = /^Expires on (\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}) UTC$/;
 const LIFETIME_MESSAGE = 'expires_in_days must be a whole number of days from 1 to 365.';
+// The Manage Token on the create result (spec 0005): 43 base64url characters, and its note.
+const MANAGE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+const KEEP_IT_SAFE = "Keep this safe: it's the only way to see this Link's stats, and it won't be shown again.";
 // The Expiry shown is the creation instant plus 30 days, to the minute (allowing a minute either side).
 const isThirtyDaysOn = (line, createdAt) => {
   const m = EXPIRY_LINE.exec(line || '');
@@ -30,6 +33,8 @@ const isThirtyDaysOn = (line, createdAt) => {
   page.on('response', r => { if (r.status() === 404) notFound.push(new URL(r.url()).pathname); });
   let navigations = 0;
   page.on('framenavigated', f => { if (f === page.mainFrame()) navigations++; });
+  const requestedUrls = [];
+  page.on('request', r => requestedUrls.push(r.url()));
 
   await page.goto(BASE + '/');
   const navAfterLoad = navigations;
@@ -41,15 +46,33 @@ const isThirtyDaysOn = (line, createdAt) => {
   await link.waitFor();
   check('Short URL appears after submit', SHORT_URL.test(await link.textContent()), await link.textContent());
   check('no full page reload (HTMX swap)', navigations === navAfterLoad, `navigations=${navigations - navAfterLoad}`);
-  const copy = page.locator('button[data-copy]');
+  const copy = page.locator('.short-url button[data-copy]');
   check('copy button revealed by JavaScript', await copy.waitFor({ state: 'visible', timeout: 2000 }).then(() => true, () => false));
   await copy.click();
-  await page.waitForFunction(() => document.querySelector('button[data-copy]').textContent.includes('Copied'));
+  await page.waitForFunction(() => document.querySelector('.short-url button[data-copy]').textContent.includes('Copied'));
   check('copy button confirms "Copied ✓"', (await copy.textContent()).includes('Copied ✓'));
   const clip = await page.evaluate(() => navigator.clipboard.readText());
   check('clipboard holds the Short URL', clip === await link.textContent(), clip);
   await page.waitForFunction(() => document.getElementById('status').textContent.length > 0);
   check('status region announces', (await page.textContent('#status')).length > 0, await page.textContent('#status'));
+
+  // The Manage Token (spec 0005, story 3): shown once, copied through copy.js, never in a URL.
+  const token = await page.inputValue('input[data-manage-token]');
+  check('Manage Token shown in a read-only field', MANAGE_TOKEN.test(token) && await page.locator('input[data-manage-token]').getAttribute('readonly') !== null, token);
+  check('keep-it-safe note shown', (await page.textContent('#manage-token-note')) === KEEP_IT_SAFE);
+  const copyToken = page.locator('.manage-token button[data-copy]');
+  check('Manage Token copy button revealed by JavaScript', await copyToken.waitFor({ state: 'visible', timeout: 2000 }).then(() => true, () => false));
+  await copyToken.click();
+  await page.waitForFunction(() => document.querySelector('.manage-token button[data-copy]').textContent.includes('Copied'));
+  const tokenClip = await page.evaluate(() => navigator.clipboard.readText());
+  check('clipboard holds the Manage Token', tokenClip === token, tokenClip);
+  check('status region announces the Manage Token was copied', await page.waitForFunction(() =>
+    document.getElementById('status').textContent === 'Manage Token copied to the clipboard.', null, { timeout: 2000 })
+    .then(() => true, () => false), await page.textContent('#status'));
+  check('Manage Token not in the page URL', !page.url().includes(token), page.url());
+  // Only in the swapped-in result: htmx itself adds its indicator <style> to <head> at load.
+  check('no inline script or style in the swapped-in result', await page.evaluate(() =>
+    document.querySelectorAll('#shortener :is(script, style, [style])').length === 0));
 
   await page.fill('input[name=url]', 'ftp://example.com/file');
   await page.click('button[type=submit]');
@@ -77,6 +100,7 @@ const isThirtyDaysOn = (line, createdAt) => {
   check('invalid Lifetime: both typed values kept via HTMX',
     (await page.inputValue('input[name=url]')) === 'https://example.com/bad-lifetime' && (await page.inputValue('input[name=expires_in_days]')) === '0');
   check('still no full page reload', navigations === navAfterLoad);
+  check('Manage Token in no requested URL', requestedUrls.every(u => !u.includes(token)), requestedUrls.filter(u => u.includes(token)).join(' '));
   check('no JavaScript errors', consoleErrors.length === 0, consoleErrors.join(' | '));
   check('no 404s while using the page', notFound.length === 0, JSON.stringify([...new Set(notFound)]));
   check('favicon is served', (await page.request.get(BASE + '/favicon.ico')).status() === 200);
@@ -88,7 +112,14 @@ const isThirtyDaysOn = (line, createdAt) => {
   await p2.fill('input[name=url]', 'https://example.com/no-js');
   await Promise.all([p2.waitForNavigation(), p2.click('button[type=submit]')]);
   check('no-JS: form posts and shows the Short URL', /\/[A-Za-z0-9]{7}$/.test(await p2.textContent('[data-short-url]')));
-  check('no-JS: copy button stays hidden', !(await p2.locator('button[data-copy]').isVisible()));
+  check('no-JS: copy buttons stay hidden', (await p2.locator('button[data-copy]:visible').count()) === 0);
+  const noJsToken = await p2.inputValue('input[data-manage-token]');
+  check('no-JS: Manage Token shown with the keep-it-safe note',
+    MANAGE_TOKEN.test(noJsToken) && (await p2.textContent('#manage-token-note')) === KEEP_IT_SAFE, noJsToken);
+  check('no-JS: Manage Token not in the page URL', !p2.url().includes(noJsToken), p2.url());
+  // With JavaScript off the DOM is exactly the page the server sent.
+  check('no-JS: the page showing the Manage Token has no inline script or style', await p2.evaluate(() =>
+    document.querySelectorAll('script:not([src]), style, [style]').length === 0));
 
   await p2.fill('input[name=url]', 'https://example.com/no-js-expiring');
   await p2.fill('input[name=expires_in_days]', '30');

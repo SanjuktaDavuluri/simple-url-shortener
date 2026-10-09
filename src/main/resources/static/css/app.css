@@ -248,6 +248,34 @@ button:hover {
   color: var(--muted);
 }
 
+/* The Manage Token panel: shown once under a created Link's Short URL (spec 0005, story 3). */
+.manage-token {
+  margin-top: var(--space-4);
+}
+
+.manage-token-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.manage-token-value input {
+  flex: 1 1 20rem;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+
+.manage-token-value button {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.manage-token .hint {
+  margin: var(--space-2) 0 0;
+}
+
 .failure {
   margin: 0;
   color: var(--danger);

@@ -16,8 +16,20 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
-/** Issue #6: shortening a link from the web page, with no JavaScript (plain HTML form post). */
+/**
+ * Issue #6: shortening a link from the web page, with no JavaScript (plain HTML form post). Issue
+ * #106: the create result shows the Manage Token once (spec 0005, stories 3 and 7).
+ */
 class WebPageIT extends IntegrationTest {
+
+  /**
+   * A scripted Manage Token: plainly fake, but shaped like a real one (43 base64url characters).
+   */
+  static final String SCRIPTED = "first-scripted-manage-token-for-tests-00001";
+
+  /** The note under the Manage Token, word for word (spec 0005, Create result panel). */
+  static final String KEEP_IT_SAFE =
+      "Keep this safe: it's the only way to see this Link's stats, and it won't be shown again.";
 
   @Test
   void theHomePageOffersOneLabelledFieldAndOneButton() {
@@ -148,6 +160,121 @@ class WebPageIT extends IntegrationTest {
     assertThat(html.getElementById("expires_in_days-error")).isNull();
   }
 
+  @Test
+  void aCreatedLinkShowsItsManageTokenWithACopyButtonAndTheKeepItSafeNoteAndIsNotCached() {
+    shortCodes.willReturn("Ab3xK9q");
+    manageTokens.willReturn(SCRIPTED);
+
+    MvcTestResult page = submit("https://example.com/very/long");
+
+    assertThat(page).hasStatus(200).hasHeader("Cache-Control", "no-store");
+    assertManageTokenPanel(html(page), SCRIPTED);
+  }
+
+  @Test
+  void aCreatedLinkWithALifetimeAlsoShowsItsManageToken() {
+    shortCodes.willReturn("Ab3xK9q");
+    manageTokens.willReturn(SCRIPTED);
+
+    MvcTestResult page = submit("https://example.com/very/long", "30");
+
+    assertThat(page).hasStatus(200).hasHeader("Cache-Control", "no-store");
+    assertManageTokenPanel(html(page), SCRIPTED);
+  }
+
+  @Test
+  void theHomePageShowsNoManageTokenPanel() {
+    MvcTestResult page = mvc.get().uri("/").exchange();
+
+    assertThat(page).hasStatus(200);
+    assertNoManageTokenPanel(html(page));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"ftp://example.com/file", BASE_URL + "/Ab3xK9q"})
+  void aRejectedLongUrlShowsItsReasonAndNoManageTokenOrTokenPanel(String longUrl) {
+    manageTokens.willReturn(SCRIPTED);
+
+    MvcTestResult page = submit(longUrl);
+
+    assertThat(page).hasStatus(422);
+    assertThat(html(page).getElementById("url-error")).isNotNull();
+    assertNoManageTokenPanel(html(page));
+    assertThat(body(page)).doesNotContain(SCRIPTED);
+    assertThat(manageTokens.draws()).isZero();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"0", "abc"})
+  void anInvalidLifetimeShowsItsMessageAndNoManageTokenOrTokenPanel(String days) {
+    manageTokens.willReturn(SCRIPTED);
+
+    MvcTestResult page = submit("https://example.com/very/long", days);
+
+    assertThat(page).hasStatus(422);
+    assertThat(html(page).getElementById("expires_in_days-error")).isNotNull();
+    assertNoManageTokenPanel(html(page));
+    assertThat(body(page)).doesNotContain(SCRIPTED);
+    assertThat(manageTokens.draws()).isZero();
+  }
+
+  @Test
+  void whenNoFreeShortCodeIsFoundThePageShowsNoManageToken() {
+    shortCodes.willReturn("Ab3xK9q");
+    createLink("https://example.com/first");
+    shortCodes.willReturn("Ab3xK9q", "Ab3xK9q", "Ab3xK9q", "Ab3xK9q", "Ab3xK9q");
+    manageTokens.willReturn(SCRIPTED);
+
+    MvcTestResult page = submit("https://example.com/second");
+
+    assertThat(page).hasStatus(503);
+    assertNoManageTokenPanel(html(page));
+    assertThat(body(page)).doesNotContain(SCRIPTED);
+  }
+
+  @Test
+  void thePageShowingTheManageTokenHasNoInlineScriptOrStyle() {
+    shortCodes.willReturn("Ab3xK9q");
+    manageTokens.willReturn(SCRIPTED);
+
+    Document html = html(submit("https://example.com/very/long"));
+
+    assertThat(html.select("script:not([src])")).isEmpty();
+    assertThat(html.select("style, [style]")).isEmpty();
+    assertThat(html.getAllElements())
+        .allSatisfy(
+            element ->
+                assertThat(element.attributes().asList())
+                    .noneMatch(attribute -> attribute.getKey().startsWith("on")));
+  }
+
+  /**
+   * The Manage Token panel as spec 0005 describes it (Create result panel): the token in a labelled
+   * read-only field that is never submitted, a copy button that copies it through {@code copy.js}
+   * (hidden until JavaScript reveals it), and the keep-it-safe note. Shared with {@link
+   * WebPageHtmxIT}.
+   */
+  static void assertManageTokenPanel(Document html, String manageToken) {
+    Element field = html.selectFirst("#result input[data-manage-token]");
+    assertThat(field).isNotNull();
+    assertThat(field.val()).isEqualTo(manageToken);
+    assertThat(field.hasAttr("readonly")).isTrue();
+    assertThat(field.hasAttr("name")).isFalse();
+    assertThat(html.select("label[for=" + field.id() + "]").text()).isEqualTo("Manage Token");
+    Element copy = html.selectFirst("#result button[data-copy=" + manageToken + "]");
+    assertThat(copy).isNotNull();
+    assertThat(copy.attr("type")).isEqualTo("button");
+    assertThat(copy.hasAttr("hidden")).isTrue();
+    assertThat(describedBy(html, field))
+        .anySatisfy(note -> assertThat(note.text()).isEqualTo(KEEP_IT_SAFE));
+  }
+
+  /** No Manage Token field, copy button or note. Shared with {@link WebPageHtmxIT}. */
+  static void assertNoManageTokenPanel(Document html) {
+    assertThat(html.select("[data-manage-token]")).isEmpty();
+    assertThat(html.text()).doesNotContain(KEEP_IT_SAFE).doesNotContain("Manage Token");
+  }
+
   /** The Lifetime field as spec 0004 describes it; shared with {@link WebPageHtmxIT}. */
   static void assertLifetimeFieldIsOffered(Document html) {
     Element form = html.selectFirst("#shortener form");
@@ -212,8 +339,11 @@ class WebPageIT extends IntegrationTest {
         .exchange();
   }
 
+  private static String body(MvcTestResult page) {
+    return new String(page.getResponse().getContentAsByteArray(), StandardCharsets.UTF_8);
+  }
+
   private static Document html(MvcTestResult page) {
-    return Jsoup.parse(
-        new String(page.getResponse().getContentAsByteArray(), StandardCharsets.UTF_8));
+    return Jsoup.parse(body(page));
   }
 }
