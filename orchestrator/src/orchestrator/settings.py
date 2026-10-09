@@ -16,6 +16,7 @@ class Settings:
     model: str = "claude-opus-5-5"
     effort: str = "high"
     stage_models: dict[str, str] = field(default_factory=dict)  # model per step, else `model`
+    stage_efforts: dict[str, str] = field(default_factory=dict)  # effort per step, else `effort`
     board_owner: str = ""
     board_number: int = 0
     # Exit Gate commands, run inside a Lane's worktree (never the engineer's checkout)
@@ -39,12 +40,19 @@ def check(settings: Settings) -> Settings:
     """Model routing must name real agent steps and a known effort (ADR 0024)."""
     if settings.effort not in EFFORTS:
         raise ValueError(f"effort must be one of {', '.join(EFFORTS)}, not {settings.effort!r}")
-    unknown = set(settings.stage_models) - set(AGENT_STEPS)
-    if unknown:
-        raise ValueError(
-            f"stage_models names unknown agent steps: {', '.join(sorted(unknown))}"
-            f" (known: {', '.join(AGENT_STEPS)})"
-        )
+    for name, routed in (
+        ("stage_models", settings.stage_models),
+        ("stage_efforts", settings.stage_efforts),
+    ):
+        unknown = set(routed) - set(AGENT_STEPS)
+        if unknown:
+            raise ValueError(
+                f"{name} names unknown agent steps: {', '.join(sorted(unknown))}"
+                f" (known: {', '.join(AGENT_STEPS)})"
+            )
+    bad = set(settings.stage_efforts.values()) - set(EFFORTS)
+    if bad:
+        raise ValueError(f"stage_efforts must be one of {', '.join(EFFORTS)}, not {sorted(bad)}")
     if not all(
         isinstance(m, str) and m.startswith("claude-") for m in settings.stage_models.values()
     ):

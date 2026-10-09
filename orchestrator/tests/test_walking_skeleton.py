@@ -219,6 +219,7 @@ def test_run_records_the_settings_it_used(
         "model": "claude-opus-5-5",
         "effort": "high",
         "stage_models": {},
+        "stage_efforts": {},
         "board_owner": "",
         "board_number": 0,
         "verify_command": "scripts/with-jdk.sh ./mvnw -B -q verify",

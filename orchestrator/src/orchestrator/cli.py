@@ -261,6 +261,19 @@ def _submitted_artifact_changed(ctx: RunContext, waiting: dict[str, Any]) -> boo
     return content_hash("\n".join(f.read_text() for f in files)) != str(waiting["hash"])
 
 
+# Model routing is re-read from settings.yaml on every resume, so a change to it (merged by a
+# reviewed PR) reaches Runs already in flight; every other setting stays as the Run started.
+ROUTING = ("model", "effort", "stage_models", "stage_efforts")
+
+
+def _reroute(deps: Deps, workspace: Workspace, run: str) -> None:
+    current = _context(deps, workspace, run).settings
+    wanted = load_settings(deps.repo_root)
+    changed = {k: getattr(wanted, k) for k in ROUTING if getattr(wanted, k) != getattr(current, k)}
+    if changed:
+        workspace.log(run).append(run=run, actor="engineer", type="settings_changed", data=changed)
+
+
 def _resume(deps: Deps, workspace: Workspace, args: argparse.Namespace) -> int:
     run = args.run
     if args.cost_cap_run is not None:
@@ -270,6 +283,7 @@ def _resume(deps: Deps, workspace: Workspace, args: argparse.Namespace) -> int:
             type="settings_changed",
             data={"cost_cap_run_usd": args.cost_cap_run},
         )
+    _reroute(deps, workspace, run)
     ctx = _context(deps, workspace, run)
     state = _run_state(workspace.log(run).read())
     if state == "finished":
