@@ -33,6 +33,22 @@ jobs:
           path: |
             target/surefire-reports/
             target/failsafe-reports/
+  container:
+      # Not a required check (spec 0007). Builds the image and tests the running container; never
+      # pushes or deploys it (ADR 0007).
+      name: Container (image build + container tests)
+      runs-on: ubuntu-latest
+      env:
+        PORT: "8765"
+        MANAGEMENT_PORT: "8766"
+      steps:
+        - uses: actions/checkout@v7
+
+        - name: Validate compose.yaml
+          run: docker compose config --quiet
+
+        - name: Build the image and run the container tests (scratch port, temporary volume)
+          run: scripts/container-test.sh
 
   browser:
     name: Browser checks (Playwright + Lighthouse)
