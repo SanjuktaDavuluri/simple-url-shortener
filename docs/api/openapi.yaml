@@ -1,0 +1,92 @@
+openapi: 3.1.0
+info:
+  description: The public JSON API of the URL shortener.
+  title: Simple URL Shortener API
+  version: "1"
+servers:
+- url: /
+paths:
+  /links:
+    post:
+      description: "Shortens a Long URL, optionally with a Lifetime. The Manage Token\
+        \ in the 201 response is returned only by this create response: it is sent\
+        \ later as `Authorization: Bearer <manage_token>`, never in a URL, and it\
+        \ cannot be recovered if lost."
+      operationId: createLink
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLinkRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedLink"
+          description: The Link was created. This is the only time the Manage Token
+            is shown.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              style: simple
+        "400":
+          content:
+            application/problem+json: {}
+          description: Malformed request.
+        "422":
+          content:
+            application/problem+json: {}
+          description: "The URL was rejected by the Rule Set, or the Lifetime is invalid."
+        "503":
+          content:
+            application/problem+json: {}
+          description: No free Short Code could be found; try again.
+      summary: Create a Link
+      tags:
+      - link-controller
+components:
+  schemas:
+    CreateLinkRequest:
+      type: object
+      properties:
+        expires_in_days:
+          type:
+          - integer
+          - "null"
+          format: int32
+          description: "Optional Lifetime in whole days, 1 to 365. Absent or null\
+            \ means the Link never expires."
+          example: 30
+          maximum: 365
+          minimum: 1
+        url:
+          type: string
+          description: The Long URL to shorten.
+          example: https://example.com/some/long/path
+      required:
+      - url
+    CreatedLink:
+      type: object
+      properties:
+        expires_at:
+          type:
+          - string
+          - "null"
+          description: "ISO-8601 UTC expiry, or null if the Link never expires."
+          example: 2030-01-01T00:00:00Z
+        long_url:
+          type: string
+          example: https://example.com/some/long/path
+        manage_token:
+          type: string
+          description: "Shown only in this response, never in a URL, and cannot be\
+            \ recovered if lost. Send it as `Authorization: Bearer <manage_token>`."
+          example: EXAMPLE-PLACEHOLDER-TOKEN
+        short_code:
+          type: string
+          example: aB3dE5g
+        short_url:
+          type: string
+          example: https://sho.rt.example/aB3dE5g

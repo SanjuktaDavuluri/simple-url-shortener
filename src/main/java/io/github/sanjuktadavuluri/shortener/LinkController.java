@@ -5,6 +5,11 @@ import io.github.sanjuktadavuluri.shortener.clicks.Click;
 import io.github.sanjuktadavuluri.shortener.clicks.ClickClassifier;
 import io.github.sanjuktadavuluri.shortener.clicks.ClickRecorder;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
@@ -76,6 +81,32 @@ class LinkController {
    * a malformed request), then the Lifetime, then the Rule Set (in {@link LinkService}).
    */
   @PostMapping("/links")
+  @Operation(
+      summary = "Create a Link",
+      description =
+          "Shortens a Long URL, optionally with a Lifetime. The Manage Token in the 201 response is"
+              + " returned only by this create response: it is sent later as `Authorization:"
+              + " Bearer <manage_token>`, never in a URL, and it cannot be recovered if lost.")
+  @ApiResponse(
+      responseCode = "201",
+      description = "The Link was created. This is the only time the Manage Token is shown.",
+      content =
+          @Content(
+              mediaType = "application/json",
+              schema = @Schema(implementation = CreatedLink.class)),
+      headers = @Header(name = "Cache-Control", description = "Always `no-store`."))
+  @ApiResponse(
+      responseCode = "400",
+      description = "Malformed request.",
+      content = @Content(mediaType = "application/problem+json"))
+  @ApiResponse(
+      responseCode = "422",
+      description = "The URL was rejected by the Rule Set, or the Lifetime is invalid.",
+      content = @Content(mediaType = "application/problem+json"))
+  @ApiResponse(
+      responseCode = "503",
+      description = "No free Short Code could be found; try again.",
+      content = @Content(mediaType = "application/problem+json"))
   @ResponseStatus(HttpStatus.CREATED)
   CreatedLink createLink(@RequestBody CreateLinkRequest request, HttpServletResponse response) {
     if (request.url() == null || !request.url().isString()) {
@@ -206,15 +237,45 @@ class LinkController {
    * The request body, read as JSON nodes so the controller decides what is malformed or invalid.
    * {@code expires_in_days} is optional: absent or {@code null} means the Link never expires.
    */
-  record CreateLinkRequest(JsonNode url, @JsonProperty("expires_in_days") JsonNode expiresInDays) {}
+  record CreateLinkRequest(
+      @Schema(
+              implementation = String.class,
+              description = "The Long URL to shorten.",
+              example = "https://example.com/some/long/path",
+              requiredMode = Schema.RequiredMode.REQUIRED)
+          JsonNode url,
+      @JsonProperty("expires_in_days")
+          @Schema(
+              implementation = Integer.class,
+              nullable = true,
+              description =
+                  "Optional Lifetime in whole days, 1 to 365. Absent or null means the Link never"
+                      + " expires.",
+              minimum = "1",
+              maximum = "365",
+              example = "30")
+          JsonNode expiresInDays) {}
 
   /** {@code expires_at} is always present: ISO-8601 UTC, or {@code null} if it never expires. */
   record CreatedLink(
-      @JsonProperty("short_code") String shortCode,
-      @JsonProperty("short_url") String shortUrl,
-      @JsonProperty("long_url") String longUrl,
-      @JsonProperty("manage_token") String manageToken,
-      @JsonProperty("expires_at") String expiresAt) {
+      @JsonProperty("short_code") @Schema(example = "aB3dE5g") String shortCode,
+      @JsonProperty("short_url") @Schema(example = "https://sho.rt.example/aB3dE5g")
+          String shortUrl,
+      @JsonProperty("long_url") @Schema(example = "https://example.com/some/long/path")
+          String longUrl,
+      @JsonProperty("manage_token")
+          @Schema(
+              description =
+                  "Shown only in this response, never in a URL, and cannot be recovered if lost."
+                      + " Send it as `Authorization: Bearer <manage_token>`.",
+              example = "EXAMPLE-PLACEHOLDER-TOKEN")
+          String manageToken,
+      @JsonProperty("expires_at")
+          @Schema(
+              nullable = true,
+              description = "ISO-8601 UTC expiry, or null if the Link never expires.",
+              example = "2030-01-01T00:00:00Z")
+          String expiresAt) {
 
     /** Leaves the Manage Token out, so it can't reach a log line (spec 0005, story 21). */
     @Override
