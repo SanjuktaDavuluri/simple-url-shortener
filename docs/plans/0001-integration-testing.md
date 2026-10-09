@@ -442,6 +442,16 @@ Every user story in [spec 0005](../specs/0005-click-stats-per-link.md) and the t
 | 16, 18, 29 | `compose.yaml` is valid and passes exactly the runbook's documented settings | `ComposeFileTest` → `composePassesNoSettingTheRunbookDoesNotDocument`, `composePassesEverySettingTheRunbookDocumentsExceptTheFixedOnes`, `driftIsDetectedInBothDirections`, `dockerComposeConfigValidates` |
 | 19, 26, 27, 28 | Runbook container section, onboarding steps, this matrix | Documents: `docs/runbook.md`, `docs/onboarding.md`, this plan |
 
+### Spec 0008 coverage (OpenAPI tickets, #184)
+
+| Story | Claim | Proven by |
+|---|---|---|
+| 7, 8, 9, 10, 11 | The committed `docs/api/openapi.yaml` equals the definition generated from the code, deterministically; the failure names `scripts/openapi.sh` | `OpenApiDriftIT` → `theCommittedDefinitionEqualsTheGeneratedOne`; `OpenApiDefinitionIT` → `theGeneratedDefinitionDescribesCreatingALinkAndIsDeterministic` |
+| 1–5, 13 | Content: exactly the three public operations with the documented statuses, the Bearer scheme on Stats only, one shared Stats `404` | `OpenApiDriftIT` → `theDefinitionHasExactlyTheThreePublicOperationsWithTheDocumentedStatuses` |
+| 12 | No example resembles a real token, referrer or user agent | `OpenApiDriftIT` → `noExampleLooksLikeARealTokenReferrerOrUserAgent` |
+| 14 | The public port exposes no API-docs or documentation UI path | `OpenApiDefinitionIT` → `thePublicPortExposesNoApiDocsAndNoDocumentationUi` |
+| 6 | README and onboarding link the definition and the regeneration command | Documents: `README.md`, `docs/onboarding.md`, this plan |
+
 ## 6. Entry and exit criteria
 
 - **Entry (per ticket):** the ticket's acceptance criteria are listed in this plan's matrix before implementation starts.

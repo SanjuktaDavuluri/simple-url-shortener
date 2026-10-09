@@ -25,6 +25,7 @@ This README is the map. Every question a reviewer or a new engineer usually asks
 | See what's planned, deferred, and why | [`docs/roadmap.md`](docs/roadmap.md): releases, ordering and a re-prioritisation log |
 | Trace a feature from requirement to code | [Specs](docs/specs/) → [Issues](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues?q=is%3Aissue) → [pull requests](https://github.com/SanjuktaDavuluri/simple-url-shortener/pulls?q=is%3Apr) → commits. Each PR says `Closes #n` |
 | See how it is tested | [Integration-testing plan](docs/plans/0001-integration-testing.md) (traceability matrix, [spec 0003 coverage](docs/plans/0001-integration-testing.md#spec-0003-coverage), [spec 0004 coverage](docs/plans/0001-integration-testing.md#spec-0004-coverage)) · `src/test/` · [browser checks](e2e/README.md) · [CI workflow](.github/workflows/ci.yml) |
+| Read the API contract | [`docs/api/openapi.yaml`](docs/api/openapi.yaml): OpenAPI 3 definition of the JSON API ([spec 0008](docs/specs/0008-openapi-definition.md)), generated from the code and checked for drift in `./mvnw verify`. Regenerate with `scripts/openapi.sh` |
 | Run it or contribute | [Quick start](#quick-start) below · [onboarding guide](docs/onboarding.md) |
 | Operate it | [Runbook](docs/runbook.md): start, check, diagnose, stop, configuration and metrics references |
 | See the working rules the team (and Claude Code) follow | [`CLAUDE.md`](CLAUDE.md): project charter |
@@ -102,6 +103,10 @@ Delivered early, ahead of Release 3, by orchestrator Run R-0002 from Issue [#83]
 - **Browser checks ([#101](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/101)):** creating an expiring Link and an invalid Lifetime are checked in Chrome with JavaScript on and off, and Lighthouse stays at or above 90 in every category.
 
 How it works: the [create and Redirect flows](docs/architecture.md#request-flows) and [a Link's Expiry](docs/architecture.md#a-links-expiry-expiring-links) in the architecture, the [glossary](CONTEXT.md) terms *Lifetime*, *Expiry* and *Expired Link*, the API example and code tour in [onboarding](docs/onboarding.md#3-run-it), the test evidence in [plan 0001](docs/plans/0001-integration-testing.md#spec-0004-coverage), and the [roadmap](docs/roadmap.md) (R3: done, with its PRs).
+
+### Done in Release 2, to be tagged at its close-out: OpenAPI definition (roadmap R21, [spec 0008](docs/specs/0008-openapi-definition.md))
+
+The JSON API's contract is in [`docs/api/openapi.yaml`](docs/api/openapi.yaml): create a Link, the Redirect and the Stats endpoint (Bearer Manage Token). It is generated from the code, never edited by hand. After changing the API, regenerate it with `scripts/openapi.sh`; the drift test fails `./mvnw verify` if the file is stale. Test evidence: [plan 0001](docs/plans/0001-integration-testing.md#spec-0008-coverage-openapi-tickets-184).
 
 ### Planned ([roadmap](docs/roadmap.md))
 
