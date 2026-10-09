@@ -97,7 +97,9 @@ class InMemoryGitHub:
         return number
 
     def add_blocked_by(self, issue: int, blocker: int) -> None:
-        self.blocked_by.setdefault(issue, []).append(blocker)
+        """Like the real one: a blocker already recorded is not added again."""
+        if blocker not in self.blocked_by.setdefault(issue, []):
+            self.blocked_by[issue].append(blocker)
 
     def add_to_board(self, issue: int, fields: dict[str, str]) -> None:
         """Like the real board: adds the item once, and sets only the fields named."""
