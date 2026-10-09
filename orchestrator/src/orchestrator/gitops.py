@@ -5,6 +5,7 @@ import subprocess
 import threading
 from pathlib import Path
 
+from orchestrator import docmerge
 from orchestrator.policies import Change
 from orchestrator.workspace import Workspace
 
@@ -134,25 +135,38 @@ def show(workspace: Workspace, ref: str, path: str) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def bring_in_main(tree: Path, message: str) -> list[str] | None:
+def bring_in_main(
+    tree: Path, message: str, shared: tuple[str, ...] = ()
+) -> tuple[list[str], list[str]] | None:
     """Merge origin/main into the worktree's branch when it is behind. Returns None when there
-    was nothing to take in, [] when it merged cleanly, or the conflicting files (merge undone)."""
+    was nothing to take in, else (conflicting files, shared documents merged row by row). A
+    conflict only in `shared` documents is merged row by row (#77, `docmerge`); any other
+    conflict undoes the merge and is returned for a human to resolve."""
     _git(tree, "fetch", "--quiet", "origin")
     if (
         _run(tree, "merge-base", "--is-ancestor", "origin/main", "HEAD", check=False).returncode
         == 0
     ):
         return None
-    if (
-        _run(
-            tree, "merge", "--quiet", "--no-edit", "-m", message, "origin/main", check=False
-        ).returncode
-        == 0
-    ):
-        return []
+    merge = ("-c", "merge.conflictStyle=diff3", "merge", "--quiet", "--no-edit", "-m", message)
+    if _run(tree, *merge, "origin/main", check=False).returncode == 0:
+        return [], []
     conflicts = _git(tree, "diff", "--name-only", "--diff-filter=U").split()
+    if conflicts and set(conflicts) <= set(shared) and _merge_rows(tree, conflicts):
+        _git(tree, "commit", "--quiet", "--no-edit")
+        return [], conflicts
     _run(tree, "merge", "--abort", check=False)
-    return conflicts
+    return conflicts, []
+
+
+def _merge_rows(tree: Path, paths: list[str]) -> bool:
+    merged = {path: docmerge.merge_rows((tree / path).read_text()) for path in paths}
+    if any(text is None for text in merged.values()):
+        return False
+    for path, text in merged.items():
+        (tree / path).write_text(text or "")
+        _git(tree, "add", path)
+    return True
 
 
 def bring_in(tree: Path, ref: str, message: str) -> None:

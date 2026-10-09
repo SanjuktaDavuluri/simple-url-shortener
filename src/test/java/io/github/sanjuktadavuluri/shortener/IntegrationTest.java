@@ -108,6 +108,11 @@ abstract class IntegrationTest {
     clock.set(NOW);
   }
 
+  /** Saves every Click recorded so far, so Stats read next include them (ADR 0012: never sleep). */
+  void flushClicks() {
+    clickRecorder.flush();
+  }
+
   /** The Clicks stored for a Short Code, oldest first, once every recorded Click is saved. */
   List<Click> storedClicks(String shortCode) {
     clickRecorder.flush();
