@@ -1,0 +1,15 @@
+.local/
+target/
+.git
+.github
+e2e/node_modules
+e2e/reports
+orchestrator/
+delivery/
+.scratch/
+.orchestrator/
+*.db
+*.db-wal
+*.db-shm
+.idea/
+.vscode/
