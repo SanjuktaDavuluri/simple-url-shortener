@@ -15,3 +15,4 @@ Specs record **what** we are building and why it matters to its users. They pair
 | 0006 | [Operability basics: health checks, metrics, structured logs with request IDs, graceful shutdown and a first runbook](0006-operability-basics.md) | implemented | R12: Run R-0004, Issue #96 |
 | 0005 | [Click stats per Link: the creator can see how a Link is used](0005-click-stats-per-link.md) | implemented | R2: Run R-0003, Issue #95 |
 | 0007 | [Dockerize: a multi-stage image, a Compose file for a local run, and an image built and tested in CI](0007-dockerize.md) | implemented | R11: Run R-0005, Issue #171 |
+| 0008 | [OpenAPI definition of the JSON API, checked in CI so it can't drift from the code](0008-openapi-definition.md) | implemented | R21: Run R-0006, Issue #184 |

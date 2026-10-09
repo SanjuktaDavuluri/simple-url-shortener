@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: implemented
 date: 2026-10-09
 release: 2
 roadmap: R21
