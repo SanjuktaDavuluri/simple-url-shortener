@@ -24,13 +24,12 @@ class StartupValidationIT {
     "CLICK_BATCH_SIZE,0",
     "CLICK_QUEUE_CAPACITY,0",
     "CLICK_QUEUE_CAPACITY,-5",
-    "CLICK_FLUSH_INTERVAL,0s",
-    "CLICK_SHUTDOWN_TIMEOUT,0s"
+    "CLICK_FLUSH_INTERVAL,PT0S",
+    "CLICK_SHUTDOWN_TIMEOUT,PT0S"
   })
   void aBadSettingStopsStartupNamingItsVariableAndValue(String variable, String value) {
     assertThatThrownBy(
-            () ->
-                TestApps.startWithEnvironment(TestDatabases.newFile(), Map.of(variable, value)))
+            () -> TestApps.startWithEnvironment(TestDatabases.newFile(), Map.of(variable, value)))
         .hasStackTraceContaining(variable)
         .hasStackTraceContaining(value);
   }

@@ -30,7 +30,8 @@ public record ShortenerProperties(String baseUrl, String databasePath, Clicks cl
     boolean valid =
         uri != null
             && uri.isAbsolute()
-            && ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+            && ("http".equalsIgnoreCase(uri.getScheme())
+                || "https".equalsIgnoreCase(uri.getScheme()))
             && uri.getHost() != null
             && uri.getRawQuery() == null
             && uri.getRawFragment() == null;
