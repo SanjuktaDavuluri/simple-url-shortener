@@ -2,6 +2,7 @@ package io.github.sanjuktadavuluri.shortener;
 
 import io.github.sanjuktadavuluri.shortener.rules.RuleResult;
 import io.github.sanjuktadavuluri.shortener.rules.RuleSet;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -27,6 +28,7 @@ public class LinkService {
   private final LinkStore links;
   private final ShortenerProperties properties;
   private final Clock clock;
+  private final MeterRegistry metrics;
 
   LinkService(
       RuleSet ruleSet,
@@ -34,13 +36,15 @@ public class LinkService {
       ManageTokenGenerator manageTokens,
       LinkStore links,
       ShortenerProperties properties,
-      Clock clock) {
+      Clock clock,
+      MeterRegistry metrics) {
     this.ruleSet = ruleSet;
     this.shortCodes = shortCodes;
     this.manageTokens = manageTokens;
     this.links = links;
     this.properties = properties;
     this.clock = clock;
+    this.metrics = metrics;
   }
 
   /**
@@ -52,6 +56,7 @@ public class LinkService {
   public Link create(String submittedLongUrl, Optional<Lifetime> lifetime) {
     String longUrl = submittedLongUrl.strip();
     if (ruleSet.check(longUrl) instanceof RuleResult.Rejected rejected) {
+      metrics.counter("shortener.rejections", "rule", rejected.rule()).increment();
       throw new RejectedLongUrlException(rejected.rejectionReason());
     }
     String manageToken = manageTokens.next();
@@ -63,10 +68,11 @@ public class LinkService {
       String shortCode = shortCodes.next();
       try {
         links.save(shortCode, longUrl, manageTokenHash, expiry);
+        metrics.counter("shortener.links.created").increment();
         return new Link(
             shortCode, properties.baseUrl() + "/" + shortCode, longUrl, manageToken, expiry);
       } catch (ShortCodeTakenException collision) {
-        // A Collision: draw again.
+        metrics.counter("shortener.collisions").increment();
       }
     }
     throw new NoFreeShortCodeException(MAX_ATTEMPTS);

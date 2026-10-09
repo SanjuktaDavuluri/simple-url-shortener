@@ -15,6 +15,8 @@ public final class HttpSchemeRule implements Rule {
             .map(URI::getScheme)
             .map(scheme -> scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))
             .orElse(false);
-    return isWebAddress ? RuleResult.passed() : RuleResult.rejected(REJECTION_REASON);
+    return isWebAddress
+        ? RuleResult.passed()
+        : RuleResult.rejected("http_scheme", REJECTION_REASON);
   }
 }
