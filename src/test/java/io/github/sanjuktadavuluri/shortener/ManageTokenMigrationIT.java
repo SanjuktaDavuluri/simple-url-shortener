@@ -7,8 +7,11 @@ import java.nio.file.Path;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 /**
  * Issue #104 (spec 0005, story 26): a database from before the Manage Token (R10: schema V2, with
@@ -39,6 +42,36 @@ class ManageTokenMigrationIT {
           .isTrue();
       assertThat(app.getBean(ClickStore.class).listClicks("Old1234")).isNotEmpty();
     }
+  }
+
+  /**
+   * Issue #105 (spec 0005, stories 20 and 26): a Link from before the Manage Token has no Stats for
+   * anyone. Whatever is presented, its {@code 404} is byte for byte the unknown Short Code's.
+   */
+  @Test
+  void anR10LinkWithoutAManageTokenHashGetsTheSameStats404AsAnUnknownShortCode() {
+    Path database = TestDatabases.newFile();
+    anR10DatabaseWithALinkAndAClick(database);
+
+    try (ConfigurableApplicationContext app =
+        TestApps.start(database, "--shortener.base-url=" + BASE_URL)) {
+      MockMvcTester mvc = TestApps.mvc(app);
+      MvcTestResult unknown = statsWithBearer(mvc, "Nope123", LinkStatsIT.FIRST);
+      assertThat(unknown).hasStatus(404).hasHeader("Cache-Control", "no-store");
+
+      for (String presented : new String[] {LinkStatsIT.FIRST, LinkStatsIT.SECOND, ""}) {
+        assertThat(LinkStatsIT.everythingTheClientSees(statsWithBearer(mvc, "Old1234", presented)))
+            .isEqualTo(LinkStatsIT.everythingTheClientSees(unknown));
+      }
+      assertThat(mvc.get().uri("/Old1234")).hasStatus(302);
+    }
+  }
+
+  private static MvcTestResult statsWithBearer(MockMvcTester mvc, String shortCode, String bearer) {
+    return mvc.get()
+        .uri("/links/" + shortCode + "/stats")
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer)
+        .exchange();
   }
 
   /** Builds the schema exactly as R10 shipped it (V1 and V2) and stores one Link and one Click. */

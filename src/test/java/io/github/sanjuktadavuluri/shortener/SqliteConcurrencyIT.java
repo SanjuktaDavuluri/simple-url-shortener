@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.sanjuktadavuluri.shortener.clicks.Click;
 import io.github.sanjuktadavuluri.shortener.clicks.ClickStore;
+import io.github.sanjuktadavuluri.shortener.clicks.ClickSummary;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -12,6 +13,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -273,6 +275,11 @@ class SqliteConcurrencyIT extends IntegrationTest {
     @Override
     public List<Click> listClicks(String shortCode) {
       return clickStore.listClicks(shortCode);
+    }
+
+    @Override
+    public ClickSummary summarise(String shortCode, Instant windowStart) {
+      return clickStore.summarise(shortCode, windowStart);
     }
 
     boolean awaitHolding(Duration timeout) throws InterruptedException {

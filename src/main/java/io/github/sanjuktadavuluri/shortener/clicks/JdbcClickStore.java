@@ -7,8 +7,10 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -84,6 +86,46 @@ class JdbcClickStore implements ClickStore {
         .param("shortCode", shortCode)
         .query((row, rowNumber) -> click(row))
         .list();
+  }
+
+  /**
+   * Aggregates in SQL with {@code GROUP BY} over the {@code (short_code, clicked_at)} index, inside
+   * one transaction, so every number comes from the same snapshot (WAL, ADR 0021) and the Clicks
+   * are never all loaded into memory. Bots are left out of the last Click (ADR 0013).
+   */
+  @Override
+  public ClickSummary summarise(String shortCode, Instant windowStart) {
+    return transaction.execute(
+        status -> {
+          Map<AgentCategory, Long> byAgentCategory = new EnumMap<>(AgentCategory.class);
+          jdbc.sql(
+                  """
+                  SELECT agent_category, COUNT(*) AS clicks
+                  FROM clicks
+                  WHERE short_code = :shortCode
+                  GROUP BY agent_category
+                  """)
+              .param("shortCode", shortCode)
+              .query(
+                  row -> {
+                    byAgentCategory.put(
+                        AgentCategory.valueOf(
+                            row.getString("agent_category").toUpperCase(Locale.ROOT)),
+                        row.getLong("clicks"));
+                  });
+          Optional<Instant> lastClickAt =
+              jdbc.sql(
+                      """
+                      SELECT MAX(clicked_at)
+                      FROM clicks
+                      WHERE short_code = :shortCode AND agent_category <> 'bot'
+                      """)
+                  .param("shortCode", shortCode)
+                  .query((row, rowNumber) -> Optional.ofNullable(row.getString(1)))
+                  .single()
+                  .map(Instant::parse);
+          return new ClickSummary(byAgentCategory, lastClickAt);
+        });
   }
 
   private static Click click(ResultSet row) throws SQLException {
