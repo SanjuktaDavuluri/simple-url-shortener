@@ -117,9 +117,9 @@ class LinkController {
    * {@code 410 Gone} with a short plain-text body, no body for {@code HEAD}, and never reaches the
    * Click Recorder (spec 0004). The lookup stays a single query by primary key.
    */
-  @GetMapping("/{shortCode:[A-Za-z0-9]{7}}")
+  @GetMapping("/{short_code:[A-Za-z0-9]{7}}")
   void followLink(
-      @PathVariable String shortCode,
+      @PathVariable("short_code") String shortCode,
       HttpMethod method,
       @RequestHeader(name = HttpHeaders.REFERER, required = false) String referer,
       @RequestHeader(name = HttpHeaders.USER_AGENT, required = false) String userAgent,

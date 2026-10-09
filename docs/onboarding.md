@@ -68,6 +68,7 @@ To run a second, throwaway copy next to it, give it its own port and data direct
 | Setting | Default | Purpose |
 |---|---|---|
 | `BASE_URL` | `http://localhost:8000` | The public address; every Short URL starts with it |
+| `LOG_FORMAT` | `json` | Console log format: `json` (one ECS JSON object per line, with the `request_id`) or `text`; anything else stops startup |
 | `DATABASE_PATH` | `links.db` | The SQLite database file (schema created by Flyway on startup) |
 | `PORT` | `8000` | HTTP port |
 | `CLICK_QUEUE_CAPACITY` | `10000` | Most Clicks waiting in the Click Recorder's queue; a Click that arrives when it is full is dropped and counted ([ADR 0012](adr/0012-clicks-recorded-asynchronously.md)) |

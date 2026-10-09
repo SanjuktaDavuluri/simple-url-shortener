@@ -210,6 +210,7 @@ curl -si localhost:8000/actuator/health            # 404: no Actuator path exist
 | Setting | Default | Purpose |
 |---|---|---|
 | `BASE_URL` | `http://localhost:8000` | The shortener's public address; every Short URL starts with it |
+| `LOG_FORMAT` | `json` | Console log format: `json` (one ECS JSON object per line, with the `request_id`) or `text`; anything else stops startup |
 | `DATABASE_PATH` | `links.db` | Where the SQLite database file lives (schema created by Flyway on startup). It runs in WAL mode, so `links.db-wal` and `links.db-shm` sit beside it: back up, move or delete the three together, and keep them on a local disk ([onboarding](docs/onboarding.md), ADR 0021) |
 | `PORT` | `8000` | HTTP port |
 | `MANAGEMENT_PORT` | `8081` | Management port for health checks and metrics, never the public port; only `/actuator/health` (Liveness, Readiness) and `/actuator/prometheus` are exposed (ADR 0015, spec 0006). A second local instance needs its own value as well as its own `PORT` |
