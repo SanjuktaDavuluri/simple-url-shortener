@@ -8,3 +8,4 @@ Work is planned in numbered **Releases** on the [roadmap](../roadmap.md). Each R
 | Version | Release | Date | Notes |
 |---|---|---|---|
 | `v1.0.0` | Release 1: Greenfield v1 | 2026-10-07 | [v1.0.0.md](v1.0.0.md) |
+| `v2.0.0` | Release 2: Orchestrated delivery, analytics, operability | 2026-10-09 | [v2.0.0.md](v2.0.0.md) |
