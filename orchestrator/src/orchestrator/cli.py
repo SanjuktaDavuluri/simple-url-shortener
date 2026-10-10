@@ -136,7 +136,12 @@ def _open_approvals(log: list[dict[str, Any]]) -> list[str]:
             waiting[e["data"]["checkpoint"]] = True
         elif e["type"] in ("approved", "rejected", "approval_withdrawn"):
             waiting[e["data"]["checkpoint"]] = False
-    return [checkpoint for checkpoint, open_ in waiting.items() if open_]
+    merged = {pr for pr, state in _pr_states(log).items() if state == "merged"}
+    return [
+        checkpoint
+        for checkpoint, open_ in waiting.items()
+        if open_ and checkpoint not in {f"merge:{pr}" for pr in merged}
+    ]
 
 
 def _pr_states(log: list[dict[str, Any]]) -> dict[int, str]:
