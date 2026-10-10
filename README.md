@@ -68,62 +68,26 @@ flowchart LR
   <img src="docs/images/web-page-dark-phone-rejected.png" alt="The web page in dark mode on a phone, showing the Rejection Reason under the Long URL field" width="200">
 </p>
 
-### Available now (v1, [spec 0001](docs/specs/0001-v1-core.md))
+### Available now (v1 and Release 2, tagged [`v1.0.0`](docs/releases/v1.0.0.md) and [`v2.0.0`](docs/releases/v2.0.0.md))
+
+**Release 1 ([spec 0001](docs/specs/0001-v1-core.md))**
 
 - **Shorten:** submit a Long URL and get back a Short URL such as `http://localhost:8000/Ab3xK9q`, through the JSON API (`POST /links`) or the web page.
 - **Redirect:** opening a Short URL sends you to its Long URL with a `302 Found`.
 - **URL Rules:** only `http`/`https` addresses with a host, at most 2048 characters, and never a link back to the shortener itself. Each refusal comes with a clear Rejection Reason (`422`).
 - **Web page:** a single server-rendered page with no full page reloads, copy-to-clipboard, and light and dark mode. It works with JavaScript off.
 
-### Added in Release 2 (`v2.0.0`) (roadmap R10, [spec 0003](docs/specs/0003-clickstream.md))
+**Release 2 ([release notes](docs/releases/v2.0.0.md))**
 
-- **Clicks recorded:** every successful `GET` Redirect records one Click (Short Code, time, Referrer Host, Agent Category, Device Class) in a `clicks` table. Clicks are queued and saved in batches by a background writer, so the Redirect never waits for the database. The `302` is sent before the Click is handed over, and a failure while handing it over costs only that Click (logged as a warning), never the Redirect; a Redirect also completes while a Click batch holds SQLite's write lock. Loss is bounded and counted, never an error ([ADR 0012](docs/adr/0012-clicks-recorded-asynchronously.md)): a full queue drops new Clicks, and a batch that fails to save is dropped whole, with no retry. Drops are logged as a single warning carrying only the count, at most once per flush interval (any held back are logged when the writer stops), and the writer logs its start and stop. On a normal shutdown the writer stops after the web server, so Redirects served while shutting down are still recorded, and it saves the queued Clicks within `CLICK_SHUTDOWN_TIMEOUT`; any it cannot save in time are dropped and counted. The full `Referer` and the raw `User-Agent` are never stored ([ADR 0013](docs/adr/0013-clicks-store-minimal-non-personal-data.md)). A `404`, a `HEAD` request and Link creation record nothing. Single Clicks are never readable over HTTP; a Link's creator reads their counts as its Stats (R2, below).
+- **Clickstream** (R10, [spec 0003](docs/specs/0003-clickstream.md)): every successful Redirect records one Click, saved in batches by a background writer so the Redirect never waits for the database ([ADR 0012](docs/adr/0012-clicks-recorded-asynchronously.md), [ADR 0013](docs/adr/0013-clicks-store-minimal-non-personal-data.md)).
+- **Expiring Links** (R3, [spec 0004](docs/specs/0004-expiring-links.md)): an optional Lifetime of 1 to 365 days; an Expired Link answers `410 Gone` and its Short Code is never reused ([ADR 0022](docs/adr/0022-expired-links-kept-short-codes-never-reused.md)).
+- **Click stats per Link** (R2, [spec 0005](docs/specs/0005-click-stats-per-link.md)): a Manage Token returned once on create, the Stats JSON API (`GET /links/{short_code}/stats`) and a `/stats` web page ([ADR 0014](docs/adr/0014-creator-only-stats-via-manage-token.md), [ADR 0023](docs/adr/0023-manage-token-hashed-with-sha-256.md)).
+- **Operability basics** (R12, [spec 0006](docs/specs/0006-operability-basics.md)): a Request ID on every response, Liveness and Readiness on a separate management port, structured JSON logs, Prometheus metrics, graceful shutdown and the first [runbook](docs/runbook.md) ([ADR 0015](docs/adr/0015-observability-actuator-micrometer-structured-logs.md)).
+- **Container image** (R11, [spec 0007](docs/specs/0007-dockerize.md)): a multi-stage image that runs as a non-root user, with Compose for a local run and a container test job in CI.
+- **OpenAPI definition** (R21, [spec 0008](docs/specs/0008-openapi-definition.md)): [`docs/api/openapi.yaml`](docs/api/openapi.yaml), generated from the code with `scripts/openapi.sh` and guarded by a drift test.
+- **The delivery orchestrator** (R18, [spec 0002](docs/specs/0002-delivery-orchestrator.md)): see [below](#the-delivery-orchestrator).
 
-How it works: the [Redirect and Click flows](docs/architecture.md#the-click-flow-clickstream) and [SQLite concurrency](docs/architecture.md#sqlite-concurrency-adr-0021) in the architecture, the [glossary](CONTEXT.md) terms *Click Recorder*, *Referrer Host*, *Agent Category* and *Device Class*, the settings and code tour in [onboarding](docs/onboarding.md), the test evidence in [plan 0001](docs/plans/0001-integration-testing.md#spec-0003-coverage), and the [roadmap](docs/roadmap.md) (R10: done, with its PRs).
-
-### Added in Release 2 (`v2.0.0`): Click stats per Link (roadmap R2, [spec 0005](docs/specs/0005-click-stats-per-link.md))
-
-- **Manage Token on create (#104):** `POST /links` now also returns a `manage_token` next to `short_code`, `short_url` and `long_url`, sent with `Cache-Control: no-store`. It is shown this once and never again: the shortener stores only its SHA-256 hash, never the token itself, and never logs it ([ADR 0014](docs/adr/0014-creator-only-stats-via-manage-token.md), [ADR 0023](docs/adr/0023-manage-token-hashed-with-sha-256.md)). Every other field, status code and error is unchanged; a rejected or failed create carries no token. Links created before this change have no Manage Token and keep Redirecting as before. The token authorises reading the Link's Stats (#105, below); the web page doesn't show it yet. Glossary term *Manage Token* in [CONTEXT.md](CONTEXT.md); test evidence in [plan 0001](docs/plans/0001-integration-testing.md#spec-0005-coverage).
-- **A Link's headline Stats over the JSON API (#105):** `GET /links/{short_code}/stats` with `Authorization: Bearer <manage_token>` (the scheme in any case) returns `200` JSON: the Link's `short_code`, `short_url`, `long_url` and `created_at`; `generated_at`; the Headline Click count `clicks` (non-bot Clicks, Agent Category `browser` plus `other`); `bot_clicks`; `last_click_at` (the latest non-bot Click, or `null`); and `by_agent_category` with `browser`, `other` and `bot` always present. Times are ISO-8601 UTC to the millisecond. A Link with no Clicks gets zeros, not an error, and an Expired Link keeps its Stats. Stats are counts only, never single Clicks or raw `Referer` and `User-Agent` values, and can trail the latest Redirects by about one flush of the Click Recorder. Every failure (no or malformed `Authorization` header, an empty or wrong token, another Link's token, an unknown Short Code, or a Link created before #104, which has no Manage Token) gets the same `404` `application/problem+json`, byte for byte, so the endpoint never confirms that a Short Code exists ([ADR 0014](docs/adr/0014-creator-only-stats-via-manage-token.md)). The token is always hashed and compared in constant time, even for an unknown Short Code, and neither it nor its hash is ever logged ([ADR 0023](docs/adr/0023-manage-token-hashed-with-sha-256.md)). Every Stats answer is `Cache-Control: no-store`. The breakdowns came with #107 (below); the web page came with the Stats page ticket. Glossary terms *Stats* and *Headline Click count* in [CONTEXT.md](CONTEXT.md); test evidence in [plan 0001](docs/plans/0001-integration-testing.md#spec-0005-coverage).
-- **Manage Token on the web page ([#106](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/106)):** when the web page creates a Link, with or without a Lifetime, the result shows its Manage Token once, under the Short URL, in a read-only "Manage Token" field with its own Copy button (it announces "Manage Token copied to the clipboard.") and the note "Keep this safe: it's the only way to see this Link's stats, and it won't be shown again." The field has no `name`, so the token is never submitted back and never goes into a URL. Every answer to the form post (`POST /`), full page or HTMX fragment, is sent with `Cache-Control: no-store`. The home page, a rejected Long URL, an invalid Lifetime and a `503` show no token. It works the same with and without JavaScript (the Copy button appears only with JavaScript), with no inline script or style.
-- **Stats breakdowns (#107):** the Stats JSON also carries `clicks_per_day`, exactly 30 `{"date","clicks"}` entries for the 30 UTC days ending today (dates `yyyy-MM-dd`, oldest first, a day without Clicks at 0); `by_device_class` with `desktop` and `mobile` always present; `top_referrer_hosts`, at most 10 `{"host","clicks"}` entries, most Clicks first and ties by host; and `no_referrer_host`, the Clicks that had no Referrer Host. All four count non-bot Clicks only, so `by_device_class` sums to `clicks` and `top_referrer_hosts` plus `no_referrer_host` account for every non-bot Click when there are 10 Referrer Hosts or fewer; bots appear only in `bot_clicks` and `by_agent_category`. Days are UTC days whatever the server's time zone. A Click older than the 30-day window leaves `clicks_per_day` but still counts in `clicks` and the other breakdowns. A Link with no Clicks gets 30 zero days, both Device Classes at 0, an empty `top_referrer_hosts` and `no_referrer_host` 0. Only Referrer Hosts are shown, never a raw `Referer` URL or `User-Agent` ([ADR 0013](docs/adr/0013-clicks-store-minimal-non-personal-data.md)). Test evidence in [plan 0001](docs/plans/0001-integration-testing.md#spec-0005-coverage).
-
-- **Stats web page (#112, #160, #161):** `/stats` is a form for the Short Code (or Short URL) and the Manage Token, linked from the create result ("See its stats"). `POST /stats` shows the Headline Click count, bot Clicks, the last Click, the 30 UTC days as an accessible table with CSS-only bars, the Device Class split and the top 10 Referrer Hosts, with a note that counts can lag by about one flush interval. Every failure shows one `404` message that never reveals whether the Short Code exists. The token field is a password field and never goes into a URL. It works with and without JavaScript, every answer is `Cache-Control: no-store`, and Lighthouse stays at or above 90. Tests prove that no token, token hash, `Bearer` value, raw `Referer` or `User-Agent` reaches a log or a response, and that a token in the query string is ignored.
-
-### Added in Release 2 (`v2.0.0`): Operability basics (roadmap R12, [spec 0006](docs/specs/0006-operability-basics.md), [ADR 0015](docs/adr/0015-observability-actuator-micrometer-structured-logs.md))
-
-- **Request ID on every response (#117):** every response from the public port, including the `302` Redirect, Rejections, `404`s, the web page, static assets and a `500`, now carries an `X-Request-Id` header. A caller's own `X-Request-Id` of 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `.`, `_` and `-` is sent back unchanged. Any other value, or no header, is replaced by a new random UUID, and the rejected value is never logged. While the request is handled, the ID is in the logging MDC as `request_id`, so the structured logs that come later in spec 0006 can show it on every line. It is removed afterwards, even when the request fails. An unexpected error answers `500` with no exception message and no stack trace (`server.error.include-stacktrace=never` and `include-message=never` are now set explicitly). Every other status, body, route and header is unchanged. Test evidence is in [plan 0001](docs/plans/0001-integration-testing.md#5-traceability-matrix).
-
-- **Liveness and Readiness on a separate management port (#116):** `MANAGEMENT_PORT` (default `8081`) serves only `/actuator/health` (Liveness, Readiness with `db`, `clickQueue` and `readinessState`) and `/actuator/prometheus`; the public port has no Actuator path. Readiness is `503` while the database is unreachable or the Click queue is full.
-- **Configuration is validated at startup (#118):** a relative or malformed `BASE_URL` (not `http`/`https`, or with a query or fragment), a non-positive Click setting, a batch size above the queue capacity or an unknown `LOG_FORMAT` stops startup with a message naming the variable and its value.
-- **Structured JSON logs (#119):** each log line is one JSON object with the `request_id`, and each request logs exactly one access line (method, route pattern, status, duration). `LOG_FORMAT=text` gives plain text for local debugging. Long URLs, referrers, user agents, authorization headers, query strings, IP addresses and Manage Tokens never reach a log.
-- **Metrics (#120):** `/actuator/prometheus` carries domain counters (`shortener_links_total`, `shortener_redirects_total{outcome}`, `shortener_rejections_total{rule}`, `shortener_collisions_total`), Click gauges and counters (`shortener_clicks_recorded_total`, `_dropped_total`, `_pending`, `_queue_capacity`) and the standard HTTP, JVM and connection-pool metrics. No Short Code, Long URL or Rejection Reason is ever a tag.
-- **Graceful shutdown (#121):** Readiness goes `OUT_OF_SERVICE`, the web server stops accepting connections, in-flight requests finish (`SHUTDOWN_TIMEOUT`), queued Clicks are flushed (`CLICK_SHUTDOWN_TIMEOUT`), then the pool closes. One line announces the start of the shutdown and one summarises the Clicks saved and dropped; one startup line lists the effective settings.
-- **Local and CI use Readiness (#122):** `scripts/local.sh start` waits for Readiness and `status` shows it; `stop` waits for the graceful shutdown; the CI browser-check job polls Readiness. The job names are unchanged, so the required checks are too.
-- **First runbook (#123):** [`docs/runbook.md`](docs/runbook.md) covers start, check, diagnose (by Request ID), stop, data and backup, and a configuration reference. A test fails the build if a setting in `application.properties` is missing from that reference.
-
-### Added in Release 2 (`v2.0.0`): Expiring Links (roadmap R3, [spec 0004](docs/specs/0004-expiring-links.md), [ADR 0022](docs/adr/0022-expired-links-kept-short-codes-never-reused.md))
-
-Delivered early, ahead of Release 3, by orchestrator Run R-0002 from Issue [#83](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/83). Its one-line request ("Links should be able to expire") was clarified on the Issue before the spec was written (R23). Tickets #97–#102.
-
-- **Expiring Links, through the API ([#97](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/97)):** `POST /links` takes an optional `expires_in_days`, a Lifetime of 1 to 365 whole days. The `201` always includes `expires_at`: the Expiry in ISO-8601 UTC (creation time plus the Lifetime in exact 24-hour days), or `null` for a Link created without a Lifetime, which never expires, as every existing Link does. From the exact instant of its Expiry, the Short URL answers `410 Gone` (`text/plain`, `Cache-Control: no-store`, body `This link has expired.`, no body for `HEAD`) instead of Redirecting, and records no Click. The Expired Link stays stored and its Short Code is never reused. An unknown Short Code is still `404`.
-- **Invalid Lifetimes refused ([#98](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/98)):** an `expires_in_days` that is present and not `null` must be a JSON whole number from 1 to 365. Anything else (`0`, `366`, `1.5`, `"30"`, `true`, an object) is never coerced: it gets a `422` problem detail "expires_in_days must be a whole number of days from 1 to 365." and creates no Link. A request is checked in order: a `url` that is missing, `null` or not a JSON string is a malformed request (`422`, as before), then the Lifetime, then the URL Rules, so a Rule-breaking `url` with a valid or no Lifetime keeps its Rejection Reason.
-- **Expiring Links on the web page ([#100](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/100)):** the form has an optional "Expires after (days)" field, with the hint "Leave blank to keep the link forever". Left blank, the Link never expires. With a Lifetime, the result shows the Expiry in UTC to the minute under the Short URL (for example "Expires on 2026-11-07 10:15 UTC"). The server is the only judge of the value, as for the Long URL: anything that isn't a whole number from 1 to 365 (`0`, `366`, `1.5`, `abc`) gets a `422` with "expires_in_days must be a whole number of days from 1 to 365." under the field, keeps what was typed in both fields, and creates no Link. As in the API, the Lifetime is checked before the URL Rules. It works the same with and without JavaScript (one template, [ADR 0006](docs/adr/0006-htmx-progressive-enhancement-web-page.md)), with no new JavaScript.
-- **Expired Links are kept, and their Short Codes are never reused ([#99](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/99), [ADR 0022](docs/adr/0022-expired-links-kept-short-codes-never-reused.md)):** nothing deletes or purges a Link, so drawing an Expired Link's Short Code again is a Collision, and its Short URL keeps answering `410` and never sends anyone somewhere new. Its Clicks from before the Expiry are kept for auditing and R2. The Expiry survives a restart. `V3__add_link_expiry.sql` adds one nullable `expires_at` column, so every Link created before it never expires and keeps its Clicks. There is no background job and no new setting.
-- **Browser checks ([#101](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/101)):** creating an expiring Link and an invalid Lifetime are checked in Chrome with JavaScript on and off, and Lighthouse stays at or above 90 in every category.
-
-How it works: the [create and Redirect flows](docs/architecture.md#request-flows) and [a Link's Expiry](docs/architecture.md#a-links-expiry-expiring-links) in the architecture, the [glossary](CONTEXT.md) terms *Lifetime*, *Expiry* and *Expired Link*, the API example and code tour in [onboarding](docs/onboarding.md#3-run-it), the test evidence in [plan 0001](docs/plans/0001-integration-testing.md#spec-0004-coverage), and the [roadmap](docs/roadmap.md) (R3: done, with its PRs).
-
-### Added in Release 2 (`v2.0.0`): OpenAPI definition (roadmap R21, [spec 0008](docs/specs/0008-openapi-definition.md))
-
-The JSON API's contract is in [`docs/api/openapi.yaml`](docs/api/openapi.yaml): create a Link, the Redirect and the Stats endpoint (Bearer Manage Token). It is generated from the code, never edited by hand. After changing the API, regenerate it with `scripts/openapi.sh`; the drift test fails `./mvnw verify` if the file is stale. Test evidence: [plan 0001](docs/plans/0001-integration-testing.md#spec-0008-coverage-openapi-tickets-184).
-
-### Added in Release 2 (`v2.0.0`): Container image (roadmap R11, [spec 0007](docs/specs/0007-dockerize.md))
-
-- **One image, no local toolchain (#172):** `docker build -t shortener .` builds a multi-stage image (Maven build stage, JRE 25 runtime stage) holding only the JRE and the jar. The process runs as the unprivileged user `shortener` (UID 10001), the SQLite database lives on the `/data` volume, and a `HEALTHCHECK` polls Readiness on the management port. `docker stop` sends `SIGTERM` to the Java process (PID 1), so the graceful shutdown runs and the container exits `0` within the documented bound. A misconfigured container exits non-zero and names the variable.
-- **Compose for a local run (#173):** `docker compose up` runs the service on port `9000` with `BASE_URL` to match; the management port is published to the host's loopback only; the settings pass through from the environment with the runbook's defaults. A drift test fails the build if `compose.yaml` and the runbook's settings differ.
-- **Built and tested in CI (#174):** a "Container (image build + container tests)" job builds the image on every pull request and runs `scripts/container-test.sh`: the container becomes healthy, serves a Link, keeps it across a restart on the same volume, runs as non-root and stops gracefully. The image is never pushed to a registry. The job is additional to the three required checks.
-- **Documented (#175):** the container section of the [runbook](docs/runbook.md), the [onboarding guide](docs/onboarding.md#run-it-as-a-container) and the [architecture](docs/architecture.md). Test evidence: [plan 0001](docs/plans/0001-integration-testing.md), phase P5.
+How it works: the [architecture](docs/architecture.md), the [glossary](CONTEXT.md), the code tour in [onboarding](docs/onboarding.md) and the test evidence in [plan 0001](docs/plans/0001-integration-testing.md).
 
 ### Planned ([roadmap](docs/roadmap.md))
 
@@ -135,18 +99,113 @@ The JSON API's contract is in [`docs/api/openapi.yaml`](docs/api/openapi.yaml): 
 
 ## The delivery orchestrator
 
-*Built in Release 2 (roadmap R18, tickets #26–#35; spec 0002 implemented), with the Claude Agent SDK as its agent. Available now: a full Run with parallel Lanes and Re-plan, under policy guardrails, with retries, pause and resume, Rollback, Safe-stop and cost caps: intake, requirements, design, decompose, Lanes (implement → document → PR → human merge), release readiness and close-out, via `start`, `status`, `resume`, `replan`, `approve`, `reject`, `waive`, `verify` and `metrics`. See [`orchestrator/README.md`](orchestrator/README.md).*
+The stage graph the orchestrator runs (`orchestrator/src/orchestrator/graph.py`). Each diagram is one level of detail down from the one before.
 
-An engineer starts a run from a GitHub Issue: `orchestrate start <issue>`. The orchestrator then drives the request through fixed stages: **intake → requirements → design → decompose → per-ticket lanes (implement → document → PR) → release readiness → close-out**. Each stage has an exit gate. A human approves the spec, any ADRs, the tickets and every merge. Each run leaves a tamper-evident event log and a report in the repository, and delivery metrics are derived from them.
+<p>
+  <img src="docs/images/orchestrator-status.png" alt="Terminal output of `uv run orchestrate status R-0006`: the Stages intake to decompose passed, lanes running, release readiness and close-out pending, PR #189 merged, no approvals waiting, cost so far $1.12" width="760">
+</p>
 
-| Topic | ADR |
+*`orchestrate status` on a Run in progress (R-0006): which Stage it is in, merged PRs, approvals it is waiting for, and the cost so far.*
+
+### Run flow
+
+```text
+ START
+   │
+   ▼
+┌────────┐ pass ┌──────────────┐   ┌────────┐   ┌───────────┐   ┌───────┐
+│ intake │─────▶│ requirements │──▶│ design │──▶│ decompose │──▶│ lanes │
+└───┬────┘      └──────────────┘   └────────┘   └───────────┘   └───┬───┘
+    │ fail        (Stage template: see below)                       │
+    ▼                                                               ▼
+   END                  END ◀── ┌───────────┐ ◀── ┌───────────────────┐
+                                │ close_out │     │ release_readiness │
+                                └───────────┘     └───────────────────┘
+```
+
+### Stage template (requirements, design, decompose)
+
+```text
+  ┌────────────── rejected (reason fed back) ──────────────┐
+  │                                                        │
+  ▼                                                        │
+┌───────┐       ┌──────┐ pass ┌─────────┐   ┌───────┐   ┌──┴──────┐
+│ draft │──────▶│ gate │─────▶│ request │──▶│ await │──▶│ decided │
+└───────┘       └──┬───┘      └─────────┘   └───────┘   └────┬────┘
+  ▲  ▲             │ fail                                    │ approved
+  │  └─ retry ─────┤ (feedback)                              ▼
+  │                │ retries used up                    next Stage
+  │                ▼
+  │            ┌────────┐
+  └─ resume ───│ paused │
+               └────────┘
+```
+
+| Node | What it does |
 |---|---|
-| What it is, where it lives, how it is used, what it's built with (Python, Claude Agent SDK, LangGraph) | [0007](docs/adr/0007-delivery-orchestrator.md) |
-| Stages, gates, human approvals, retries, rollback and safe-stop | [0008](docs/adr/0008-orchestrator-stage-graph-and-governance.md) |
-| State, the hash-chained audit trail and delivery metrics | [0009](docs/adr/0009-orchestrator-state-audit-and-metrics.md) |
-| Policy guardrails, checked before every action and after every step | [0010](docs/adr/0010-orchestrator-policy-guardrails.md) |
-| Re-planning when inputs change, without redoing unaffected work | [0011](docs/adr/0011-orchestrator-replanning-and-lineage.md) |
-| Parallel Lanes: agent work fans out in the graph, human waits are held at the join | [0020](docs/adr/0020-parallel-lanes-fan-out-in-the-graph-waits-at-the-join.md) |
+| draft | The agent produces the artifact (spec, ADR or ticket breakdown). |
+| gate | Checks the draft. On failure it retries with the problems as feedback, until `max_retries` is used up. |
+| request | Posts the approval request once, with the artifact link and hash. |
+| await | Stops the Run until a human approves or rejects. |
+| decided | Routes on the decision: forward if approved, back to draft if rejected. |
+| paused | Entered when retries run out. It waits for `orchestrate resume`, then retries the draft. |
+
+Each stage differs slightly:
+
+- **requirements:** draft can also ask the user questions (`await_answer`) before the gate.
+- **design:** there is one approval per ADR, and zero ADRs is allowed. After a decision it either requests the next ADR's approval or goes to `done`.
+- **decompose:** after approval it goes to `publish`, which creates the tickets, then to `lanes`.
+
+### Lanes (implementation)
+
+```text
+┌───────┐   ┌──────────────────────────┐
+│ lanes │──▶│ Docs PR: checks ─▶ merge │  (waits for maintainer;
+└───┬───┘   └────────────┬─────────────┘   failure ─▶ paused ─▶ retry)
+    │ no docs PR         │ merged
+    ▼                    ▼
+  ┌──────────────────────────────┐
+  │        lanes_schedule        │◀──────── every spoke returns here
+  └──────────────┬───────────────┘
+                 │ picks the next action
+   ┌─────────────┼───────────────┬─────────────┬──────────────┐
+   ▼             ▼               ▼             ▼              ▼
+lane_work     lanes_wait     lane_paused    rollback      approvals*
+ (run a lane,  (others still  (lane failed;  (undo a lane)  dependency or
+  then join)    running)       wait for                      amendment
+                               engineer)                     request▶await▶decided
+                 │
+                 │ all lanes finished
+                 ▼
+            lanes_done ───▶ release_readiness
+```
+
+\* Both approvals use the same request, await, decided chain as the Stage template.
+
+### Release readiness and re-plan
+
+```text
+lanes_done ─▶ release_readiness ──▶ close_out ──▶ END
+                   ▲      │
+                   │      │ checks fail
+                   │      ▼
+                   └── readiness_paused    (resume ─▶ re-check)
+
+replan_detected ─▶ replan ─▶ requirements | design | decompose | decompose_gate
+(entered only when an input changed; the Run restarts at the first affected Stage)
+```
+
+### Reading guide
+
+- **Wait for a human:** `await` nodes use `interrupt()`. They save a checkpoint and the process exits. A later `approve`, `reject` or `resume` continues the Run.
+- **Pause and retry:** every `paused` node waits for `resume`, then re-runs the step that failed.
+- **Safe-stop:** a Safe-stop or `stop` label can halt the Run before any node. It continues with `orchestrate resume`.
+
+### Orchestrator learnings
+
+- **Match the model to the stage.** The first version used Opus 5.5 for every stage, and the token allowance ran out about every four hours. The orchestrator now uses Opus, Sonnet or Haiku depending on the stage of the graph, which greatly reduced how often the limit was hit.
+- **Run the orchestrator directly.** Starting it with `orchestrate` yourself, instead of asking another agent to kick it off, saved a significant number of tokens, because no second agent has to read and relay the Run's output.
+- **Waiting on a human is the main remaining cost.** While a PR is waiting to be merged or an approval is pending, the orchestrator spends effort checking GitHub for the answer. A future version could push notifications to Slack and receive a webhook when the engineer acts, so the Run resumes on the event and no longer polls GitHub while it waits for developer input.
 
 ## Decisions
 
