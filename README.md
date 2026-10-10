@@ -195,6 +195,12 @@ replan_detected ─▶ replan ─▶ requirements | design | decompose | decompo
 - **Pause and retry:** every `paused` node waits for `resume`, then re-runs the step that failed.
 - **Safe-stop:** a Safe-stop or `stop` label can halt the Run before any node. It continues with `orchestrate resume`.
 
+### Orchestrator learnings
+
+- **Match the model to the stage.** The first version used Opus 5.5 for every stage, and the token allowance ran out about every four hours. The orchestrator now uses Opus, Sonnet or Haiku depending on the stage of the graph, which greatly reduced how often the limit was hit.
+- **Run the orchestrator directly.** Starting it with `orchestrate` yourself, instead of asking another agent to kick it off, saved a significant number of tokens, because no second agent has to read and relay the Run's output.
+- **Waiting on a human is the main remaining cost.** While a PR is waiting to be merged or an approval is pending, the orchestrator spends effort checking GitHub for the answer. A future version could push notifications to Slack and receive a webhook when the engineer acts, so the Run resumes on the event and no longer polls GitHub while it waits for developer input.
+
 ## Decisions
 
 Every significant decision is an ADR that lists the options weighed and why one won.
