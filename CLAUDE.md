@@ -47,10 +47,10 @@ Introduce each one **only when its phase arrives**, so the history shows it bein
 
 ## Status
 
-- **Release 1 complete** (`v1.0.0`, spec 0001). **Release 2 in progress** (milestone 2):
-  - **Done:** the delivery orchestrator (R18, spec 0002, tickets #26–#35), and the Clickstream (R10, spec 0003, ADR 0021), delivered by orchestrator Run R-0001 (#49, close-out #71; evidence in `delivery/runs/R-0001/` and `delivery/metrics.md`). The engineering summary is in `docs/summary.md` (#72).
-  - **Open:** orchestrator fixes found in R-0001: #74–#79.
-  - **Next, in roadmap order, each as an orchestrator Run:** R2 ∥ R12 → R11 → R21, then the Release 2 close-out.
+- **Release 1 complete** (`v1.0.0`, spec 0001). **Release 2 complete** (`v2.0.0`, milestone 2): the delivery orchestrator (R18, spec 0002), then, each as an orchestrator Run, the Clickstream (R10, R-0001), Expiring Links (R3, R-0002), Click stats (R2, R-0003), operability (R12, R-0004), the container image (R11, R-0005) and the OpenAPI definition (R21, R-0006). Evidence is in `delivery/runs/` and `delivery/metrics.md`; the engineering summary is `docs/summary.md`; the notes are `docs/releases/v2.0.0.md`.
+  - **Open:** orchestrator fixes #78 and #82 (Release 3).
+  - **Next:** Release 3.
+  - **Per-ticket documentation:** a PR writes its user-facing notes to `docs/Issue-<n>-readme.md` and leaves the README alone (parallel PRs conflict on it). The Release close-out folds them into the README once and deletes them.
 - Release 3 is designed (ADRs 0016–0019; approaches in `docs/roadmap.md`).
 - **Service:** Java 25 + Spring Boot 4.1.1, Maven Wrapper; SQLite via `JdbcClient` with Flyway (ADRs 0001–0006). Base package `io.github.sanjuktadavuluri.shortener` (URL Rules in `rules`). `BASE_URL` builds Short URLs and drives the no-self-link Rule.
 - **Service tests:** `./mvnw verify` is the single entry point (Spotless, Error Prone, JUnit 5 + AssertJ). `*Test` are unit tests and `*IT` are integration tests extending `IntegrationTest`: a shared context, the database reset before each test, a scripted `ShortCodeGenerator`, and extra instances via `TestApps`. Update the matrix in `docs/plans/0001-integration-testing.md` in each ticket's PR. Browser checks and Lighthouse live in `e2e/` (median of 3 runs, ≥ 90).

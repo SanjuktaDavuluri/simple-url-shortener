@@ -135,8 +135,12 @@ Redoing only the Stages whose recorded inputs have changed since they ran, and e
 _Avoid_: Restart, rerun
 
 **Spec amendment**:
-A change to an approved spec proposed by an agent that found a gap in it. It is approved like any artifact and reaches main through a PR; agents never edit the spec themselves.
+A change to an approved spec proposed by an agent that found a gap in it. It must be the whole spec, with its front matter and every heading, and differ from the approved one; the approval request shows the diff. It is approved like any artifact and reaches main through a PR; agents never edit the spec themselves.
 _Avoid_: Spec edit, patch
+
+**Waiver**:
+An engineer's recorded decision, with a reason, to pass one release-readiness problem (a merged PR's commit without its ticket reference). It is written to the Event Log and listed in the close-out report; nothing else the gate checks can be waived.
+_Avoid_: Override, skip
 
 **Follow-up ticket**:
 A new ticket for a change to work that has already merged, so that merged history is never rewritten.

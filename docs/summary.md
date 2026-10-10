@@ -2,10 +2,10 @@
 
 One document that explains the system, how it is delivered, and the evidence. Each section links to its source document. Numbers come from committed files (`delivery/metrics.md`, `delivery/runs/R-0001/`), not from memory.
 
-**State on 2026-10-08:**
+**State on 2026-10-09:**
 - Release 1 (greenfield) is tagged [`v1.0.0`](releases/v1.0.0.md).
-- In Release 2, the delivery orchestrator (R18) and the Clickstream (R10) are merged.
-- R2, R12, R11 and R21 come next ([roadmap](roadmap.md)).
+- Release 2 is tagged [`v2.0.0`](releases/v2.0.0.md): the delivery orchestrator (R18), then R10, R3, R2, R12, R11 and R21, each delivered by an orchestrator Run (R-0001 to R-0006).
+- Release 3 (hardening and reliability evidence) is next ([roadmap](roadmap.md)).
 
 ## 1. Plan and rationale
 
@@ -184,17 +184,11 @@ The three questions cost $1.64 in total.
 
 ## 7. Limitations and known issues
 
-**Orchestrator issues found during R-0001,** to be fixed in Release 2:
-- A Run doesn't pick up changed settings, except `--cost-cap-run`. R-0001 needed `JAVA_HOME` exported by hand.
-- `status` shows merged PRs as still waiting for checks.
-- An approval request is logged before the conflict check that pauses the Lane.
-- Sibling Lanes conflict on the same README and plan rows. These are resolved by hand, then `resume`.
-- Agent shell steps inherit the user's interactive shell configuration, which can make simple commands hang.
-- Close-out logs no `pr_opened` event, and its PR has no `Closes #<issue>`.
+**Orchestrator issues found in Release 2 Runs.** All were fixed in Release 2 except two, which move to Release 3:
+- Fixed: a Run not picking up changed settings (#74), `status` showing merged PRs as waiting (#75), an approval requested before the conflict check (#76), sibling Lanes conflicting on shared README and plan rows (#77, and the per-ticket `docs/Issue-<n>-readme.md` notes), close-out logging no `pr_opened` and lacking `Closes #<issue>` (#79), and the five cases in #170 (placeholder spec amendments, a status-only spec edit forcing a re-plan, a merged PR's approval staying listed, policy false positives on URLs in text, and untested merge results).
+- Open, in Release 3: agent shell steps inherit the user's interactive shell configuration, which can make simple commands hang ([#78](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/78)); and `board-status.sh` cannot find Issues beyond the board's first 100 items ([#82](https://github.com/SanjuktaDavuluri/simple-url-shortener/issues/82)).
 
 **Product:**
-- Click data isn't readable yet: R2 adds the stats API.
-- There are no health endpoints, structured logs or container yet: R12, R11 and R21.
 - There are no load or failure-test results yet: R13 and R14 in Release 3.
 - Rate limiting, security headers and the private-address rule are designed, not built: #86–#88 in Release 3.
 

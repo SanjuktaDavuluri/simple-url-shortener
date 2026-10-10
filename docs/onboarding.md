@@ -166,6 +166,7 @@ Deferred ideas are never dropped silently: they go into [`docs/roadmap.md`](road
 
   Renaming a CI job breaks its required check, so update the protection in the same PR.
 - **The local guard.** A versioned `pre-push` hook in `.githooks/` refuses pushes to `main` before they reach GitHub. Enable it once per clone with `git config core.hooksPath .githooks`.
+- **Per-ticket documentation.** While Release 2's Runs were in flight, each ticket's PR wrote its user-facing notes to its own `docs/Issue-<n>-readme.md`, because parallel PRs editing the same README rows conflicted. At the Release's close-out those notes were folded into the README once and deleted.
 - **History.** Branch protection returned 403 while the repository was private on a free plan. The repository was rebuilt with a no-reply commit email, then made public so GitHub could enforce protection.
 
 ## 8. The delivery orchestrator (from Release 2)
