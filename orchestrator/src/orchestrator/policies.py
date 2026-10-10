@@ -19,6 +19,24 @@ POLICY_FILE = "orchestrator/policies.yaml"
 OPERATORS = {";", "&&", "||", "|", "&", "\n", "|&"}
 WRAPPERS = {"env", "command", "exec", "nohup", "time", "nice", "builtin"}
 URL = re.compile(r"https?://[^\s'\"<>|;)]+")
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+SUBSTITUTION = re.compile(r"\$\(|`|<\(")
+# Programs that connect to the URLs in their arguments (#170). A URL in any other command's text
+# (a commit message, an `echo`, a namespace in a file being written) is not contacted by it.
+NETWORK_PROGRAMS = {
+    "curl",
+    "wget",
+    "npm",
+    "npx",
+    "pnpm",
+    "yarn",
+    "pip",
+    "pip3",
+    "uv",
+    "mvn",
+    "mvnw",
+}
+GIT_REMOTE_COMMANDS = {"clone", "fetch", "pull", "push", "ls-remote", "remote", "submodule"}
 SCHEMA: dict[str, type] = {
     "version": int,
     "git": dict,
@@ -165,13 +183,14 @@ def secret_names(policies: Policies, text: str) -> list[str]:
 
 
 def _segments(command: str) -> list[list[str]]:
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|\n")
+    lexer.whitespace = " \t\r"  # a newline separates commands, as `;` does
     lexer.whitespace_split = True
     lexer.commenters = ""
     segments: list[list[str]] = [[]]
     try:
         for token in lexer:
-            if token in OPERATORS:
+            if token in OPERATORS or set(token) == {"\n"}:
                 segments.append([])
             else:
                 segments[-1].append(token)
@@ -198,14 +217,18 @@ def _program(words: list[str]) -> tuple[str, list[str]]:
     return words[i].lstrip("\\").rsplit("/", 1)[-1], words[i + 1 :]
 
 
-def _git(policies: Policies, args: list[str]) -> Decision:
+def _git_subcommand(args: list[str]) -> tuple[str, list[str]]:
     while args and args[0] in ("-C", "-c", "--git-dir", "--work-tree"):
         args = args[2:]
     while args and args[0].startswith("-"):
         args = args[1:]
-    if not args:
+    return (args[0], args[1:]) if args else ("", [])
+
+
+def _git(policies: Policies, args: list[str]) -> Decision:
+    sub, rest = _git_subcommand(args)
+    if not sub:
         return ALLOW
-    sub, rest = args[0], args[1:]
     protected = set(policies.raw["git"]["protected_branches"])
     if sub == "push":
         force = {"-f", "--force", "--force-with-lease", "--force-if-includes", "--mirror"}
@@ -292,12 +315,53 @@ def _gh(policies: Policies, args: list[str]) -> Decision:
     return ALLOW
 
 
-def _bash(policies: Policies, command: str, workspace: Path, depth: int = 0) -> Decision:
-    cmds = policies.raw["commands"]
-    for url in URL.findall(command):
+def _off_list(policies: Policies, text: str) -> Decision | None:
+    """The first host in `text` that is not on the allow-list, as a blocking decision."""
+    for url in URL.findall(text):
         host = (urlparse(url).hostname or "").lower()
         if host not in policies.raw["network"]["allowed_hosts"]:
             return Decision(False, "network", f"{host} is not on the network allow-list")
+    return None
+
+
+def _contacts(program: str, args: list[str], interpreters: list[str]) -> bool:
+    """Does this command connect to the URLs among its arguments?"""
+    if program == "git":
+        return _git_subcommand(args)[0] in GIT_REMOTE_COMMANDS
+    return program in NETWORK_PROGRAMS or program in interpreters
+
+
+def _split_heredocs(command: str, interpreters: list[str]) -> tuple[str, list[str]]:
+    """The command without the bodies of heredocs that only feed data to a program (a file being
+    written), and the bodies that feed an interpreter, which is code that may connect."""
+    lines, kept, code = command.split("\n"), [], []
+    i = 0
+    while i < len(lines):
+        kept.append(lines[i])
+        marker = HEREDOC.search(lines[i])
+        i += 1
+        end = (
+            next((j for j in range(i, len(lines)) if lines[j].strip() == marker.group(2)), None)
+            if marker
+            else None
+        )
+        if end is None:
+            continue
+        segments = _segments(lines[i - 1])
+        program = _program(segments[-1])[0] if segments else ""
+        if program in interpreters:
+            code.append("\n".join(lines[i:end]))
+        else:
+            i = end + 1
+    return "\n".join(kept), code
+
+
+def _bash(policies: Policies, command: str, workspace: Path, depth: int = 0) -> Decision:
+    cmds = policies.raw["commands"]
+    command, scripts = _split_heredocs(command, cmds["interpreters"])
+    for text in scripts + ([command] if SUBSTITUTION.search(command) else []):
+        if decision := _off_list(policies, text):  # code we can't pick apart: check every URL in it
+            return decision
     if re.search(r"<\(\s*(curl|wget)\b", command):
         return Decision(False, "commands", "running downloaded code is not allowed")
     segments = _segments(command)
@@ -305,6 +369,10 @@ def _bash(policies: Policies, command: str, workspace: Path, depth: int = 0) -> 
     previous = ""
     for words in segments:
         program, args = _program(words)
+        if _contacts(program, args, cmds["interpreters"]) and (
+            decision := _off_list(policies, "\n".join(args))
+        ):
+            return decision
         if program in cmds["blocked_programs"]:
             return Decision(False, "commands", f"`{program}` is not allowed")
         if program in cmds["interpreters"] and previous in cmds["downloaders"]:
@@ -355,7 +423,12 @@ def decide(policies: Policies, stage: str, workspace: Path, call: ToolCall) -> D
         path = str(call.input.get("file_path") or call.input.get("notebook_path") or "")
         rel = _relative(path, workspace)
         if rel is None:
-            return Decision(False, "paths", f"{path} is outside the workspace")
+            return Decision(
+                False,
+                "paths",
+                f"{path} is outside the workspace; write scratch files inside the workspace "
+                "instead, and remove them before you finish",
+            )
         decision = _path_rule(policies, stage, rel)
         if not decision.allowed:
             return decision

@@ -12,7 +12,7 @@ from test_requirements_stage import SPEC_PATH, spec_text, writes_spec
 
 from conftest import Orchestrate
 from fakes import InMemoryGitHub, ScriptedAgent
-from orchestrator import lanes
+from orchestrator import hashing, lanes
 from orchestrator.agent import StepRequest, StepResult
 from orchestrator.hashing import content_hash
 
@@ -71,7 +71,7 @@ def test_each_stage_records_the_hashes_of_its_inputs_and_the_approvals_it_used(
     plan(T1)
 
     issue = github.get_issue(42)
-    spec_hash = content_hash(on_remote(repo, "main", SPEC_PATH))
+    spec_hash = hashing.spec_hash(on_remote(repo, "main", SPEC_PATH))
     tickets_hash = content_hash(on_remote(repo, "main", TICKETS))
     assert stage_passed(repo, "requirements")["inputs"] == {
         "issue": content_hash(f"{issue.title}\n{issue.body}")
@@ -81,9 +81,10 @@ def test_each_stage_records_the_hashes_of_its_inputs_and_the_approvals_it_used(
         "spec": spec_hash,
         "adrs": content_hash(""),
     }
-    assert {"checkpoint": "spec", "hash": spec_hash} in stage_passed(repo, "requirements")[
-        "approvals"
-    ]
+    assert {
+        "checkpoint": "spec",
+        "hash": content_hash(on_remote(repo, "main", SPEC_PATH)),
+    } in stage_passed(repo, "requirements")["approvals"]
     assert {"checkpoint": "tickets", "hash": tickets_hash} in stage_passed(repo, "decompose")[
         "approvals"
     ]
@@ -113,12 +114,41 @@ def test_a_whitespace_only_edit_is_not_a_change(
     assert "No inputs changed" in out and not replanned(repo)
 
 
+def test_a_change_confined_to_the_specs_status_is_not_a_change(
+    orchestrate: Orchestrate, agent: ScriptedAgent, repo: Path, plan: Plan
+) -> None:
+    """#170 case 2: close-out marking a spec `implemented` must not re-plan delivered work."""
+    plan(T1)
+    orchestrate("resume", "R-0001")
+    implemented_spec = spec_text().replace("status: draft", "status: implemented")
+    human_pushes(repo, "main", {SPEC_PATH: implemented_spec}, "docs: mark the spec implemented")
+
+    _, out = orchestrate("replan", "R-0001")
+
+    assert "No inputs changed" in out and not replanned(repo)
+    assert calls(agent, "design") == 1
+
+
+def test_a_change_to_the_spec_body_is_still_a_change_when_its_status_changes_too(
+    orchestrate: Orchestrate, agent: ScriptedAgent, repo: Path, plan: Plan
+) -> None:
+    plan(T1)
+    orchestrate("resume", "R-0001")
+    edited = AMENDED.replace("status: draft", "status: implemented")
+    human_pushes(repo, "main", {SPEC_PATH: edited}, "docs: clarify expiry (#42)")
+    again(agent, T1)
+
+    orchestrate("replan", "R-0001")
+
+    assert [d["from"] for d in replanned(repo)] == ["design"]
+
+
 def test_a_spec_change_invalidates_only_the_stages_downstream_of_the_spec(
     orchestrate: Orchestrate, github: InMemoryGitHub, agent: ScriptedAgent, repo: Path, plan: Plan
 ) -> None:
     plan(T1)
     orchestrate("resume", "R-0001")  # T1 reaches its PR
-    old = content_hash(on_remote(repo, "main", SPEC_PATH))
+    old = hashing.spec_hash(on_remote(repo, "main", SPEC_PATH))
     human_pushes(repo, "main", {SPEC_PATH: AMENDED}, "docs: clarify expiry (#42)")
     again(agent, T1)
 
@@ -126,7 +156,7 @@ def test_a_spec_change_invalidates_only_the_stages_downstream_of_the_spec(
 
     assert code == 0, out
     [data] = replanned(repo)
-    assert data["changes"] == [{"artifact": "spec", "old": old, "new": content_hash(AMENDED)}]
+    assert data["changes"] == [{"artifact": "spec", "old": old, "new": hashing.spec_hash(AMENDED)}]
     assert data["invalidated"] == ["design", "decompose", "lanes"]
     assert data["from"] == "design"
     invalidated = [e["data"]["stage"] for e in of_type(repo, "invalidated")]
@@ -134,7 +164,7 @@ def test_a_spec_change_invalidates_only_the_stages_downstream_of_the_spec(
     assert calls(agent, "requirements") == 1  # upstream of the spec: kept
     assert calls(agent, "design") == 2 and calls(agent, "decompose") == 2
     assert "Approvals waiting: tickets" in out
-    assert stage_passed(repo, "design")["inputs"] == {"spec": content_hash(AMENDED)}
+    assert stage_passed(repo, "design")["inputs"] == {"spec": hashing.spec_hash(AMENDED)}
 
 
 def test_a_change_is_detected_at_the_next_stage_boundary_without_replan(
@@ -369,7 +399,7 @@ def test_an_approved_amendment_reaches_main_through_a_pr_and_its_merge_replans(
     orchestrate("resume", "R-0001")
 
     [data] = replanned(repo)
-    assert data["from"] == "design" and data["changes"][0]["new"] == content_hash(AMENDED)
+    assert data["from"] == "design" and data["changes"][0]["new"] == hashing.spec_hash(AMENDED)
     orchestrate("approve", "R-0001", "tickets")
     second = [r for r in agent.requests if r.stage == "implement"][-1]
     assert (second.workspace / SPEC_PATH).read_text() == AMENDED  # the Lane continues on it
@@ -469,3 +499,90 @@ def test_several_changes_restart_from_the_earliest_stage_that_consumes_one(
     assert {c["artifact"] for c in data["changes"]} == {"issue", "spec"}
     assert data["from"] == "requirements"
     assert data["invalidated"] == ["requirements", "design", "decompose", "lanes"]
+
+
+# #170 case 1: an amendment must be a full spec, and the approval shows what changes
+
+PLACEHOLDER = "SPEC_UNCHANGED_EXCEPT_FRONT_MATTER: see the approved spec"
+
+
+def test_an_amendment_that_is_a_placeholder_is_sent_back_before_approval_is_requested(
+    orchestrate: Orchestrate, github: InMemoryGitHub, agent: ScriptedAgent, repo: Path, plan: Plan
+) -> None:
+    agent.script["implement:T1"] = [
+        amends(PLACEHOLDER, "Status only."),
+        amends(AMENDED, "The spec doesn't say what an expired link shows."),
+    ]
+
+    plan(T1)
+    _, out = orchestrate("resume", "R-0001")
+
+    [raised] = of_type(repo, "amendment_raised")  # only the full spec was raised
+    assert raised["data"]["hash"] == content_hash(AMENDED)
+    second = [r for r in agent.requests if r.stage == "implement"][1]
+    assert "front matter" in second.context["feedback"]
+    assert "# Spec 0003: Expiring links" in second.context["feedback"]
+    assert "Approvals waiting: amendment-1" in out
+
+
+def test_an_amendment_that_drops_headings_or_changes_nothing_is_refused(
+    orchestrate: Orchestrate, agent: ScriptedAgent, repo: Path, plan: Plan
+) -> None:
+    without_section = AMENDED.replace("## Out of Scope", "## Elsewhere")
+    agent.script["implement:T1"] = [
+        amends(without_section, "Dropped one."),
+        amends(spec_text(), "Same as before."),
+        amends(AMENDED, "A real gap."),
+    ]
+
+    plan(T1)
+    orchestrate("resume", "R-0001")
+
+    feedback = [r.context["feedback"] for r in agent.requests if r.stage == "implement"]
+    assert "## Out of Scope" in feedback[1]
+    assert "changes nothing" in feedback[2]
+    [raised] = of_type(repo, "amendment_raised")
+    assert raised["data"]["hash"] == content_hash(AMENDED)
+
+
+def test_the_amendment_approval_request_shows_the_diff_from_the_approved_spec(
+    orchestrate: Orchestrate, github: InMemoryGitHub, agent: ScriptedAgent, repo: Path, plan: Plan
+) -> None:
+    agent.script["implement:T1"] = [amends(AMENDED, "Unclear.")]
+
+    plan(T1)
+    orchestrate("resume", "R-0001")
+
+    request = next(
+        c for c in github.comments(42) if "amendment-1" in c.body and "Approval needed" in c.body
+    )
+    assert "```diff" in request.body
+    assert "-Links can expire.\n" in request.body
+    assert "+Links can expire, and expired links say so.\n" in request.body
+    assert "1 line added, 1 removed" in request.body
+
+
+# #170 case 3: a merged PR's approval is cleared
+
+
+def test_a_merge_approval_is_cleared_when_its_pr_merges_during_a_replan(
+    orchestrate: Orchestrate, github: InMemoryGitHub, agent: ScriptedAgent, repo: Path, plan: Plan
+) -> None:
+    plan(T1, T2)
+    orchestrate("resume", "R-0001")  # T1 and T2 wait for their merges
+    t1_pr = lane_pr(github, "T1") or 0
+    edited = tickets_on(repo, "main")
+    edited[0]["acceptance"].append("Expired links return 410")
+    human_pushes(
+        repo, "main", {TICKETS: json.dumps(edited, indent=2) + "\n"}, "docs: extend T1 (#42)"
+    )
+    orchestrate("replan", "R-0001")
+    merge(repo, github, t1_pr)
+    agent.script["implement:T1-f1"] = [writes({"feature.txt": "x\n", "T1f.txt": "410\n"})]
+    agent.script["document:T1-f1"] = [writes({}, docs_updated=[])]
+    orchestrate("approve", "R-0001", "tickets")
+
+    _, out = orchestrate("status", "R-0001")
+
+    [waiting] = [line for line in out.splitlines() if line.startswith("Approvals waiting")]
+    assert f"merge:{t1_pr}" not in waiting

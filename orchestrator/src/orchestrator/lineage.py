@@ -21,7 +21,7 @@ from orchestrator.gitops import (
     show,
     tickets_path,
 )
-from orchestrator.hashing import content_hash
+from orchestrator.hashing import content_hash, spec_hash
 from orchestrator.state import RunState
 
 ORDER = ("requirements", "design", "decompose", "lanes")
@@ -68,7 +68,7 @@ def current(ctx: RunContext, state: RunState, artifact: str, at: str) -> str | N
         return content_hash(f"{issue.title}\n{issue.body}")
     if artifact == "spec":
         text = show(ctx.workspace, at, state["spec"]["path"])
-        return None if text is None else content_hash(text)
+        return None if text is None else spec_hash(text)
     if artifact == "adrs":
         parts = []
         for adr in state.get("adrs_accepted", []):

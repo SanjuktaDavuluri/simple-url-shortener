@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 from langgraph.types import Send, interrupt
 
-from orchestrator import lineage
+from orchestrator import amendments, lineage
 from orchestrator.agent import StepRequest
 from orchestrator.approvals import gate_failed, record_gate, review_step
 from orchestrator.commands import Outcome, run, with_temporary_instance
@@ -222,11 +222,36 @@ def finish_merged(ctx: RunContext, current: Lane) -> Lane:
     """Record a Lane as merged; a no-op for one already recorded."""
     if current["status"] == "merged":
         return current
+    settle_merge_approval(ctx, current["pr"])
     record_gate(ctx, "pr", "required checks pass", [], current["key"])
     ctx.event("stage_passed", "pr", {"lane": current["key"], "pr": current["pr"]})
     ctx.event("lane_finished", "pr", {"lane": current["key"], "outcome": "merged"})
     ctx.github.add_to_board(current["issue"], {"Status": "Done"})
     return {**current, "status": "merged"}
+
+
+def settle_merge_approval(ctx: RunContext, number: int | None) -> None:
+    """A merge approval is the merge itself. When the Run only learns of the merge after a Re-plan,
+    its approval request would stay listed as waiting, so record it as given (#170)."""
+    checkpoint = f"merge:{number}"
+    events = ("approval_requested", "approved", "rejected", "approval_withdrawn")
+    last = [
+        e["type"]
+        for e in ctx.log.read()
+        if e["type"] in events and e["data"].get("checkpoint") == checkpoint
+    ]
+    if number is not None and last[-1:] == ["approval_requested"]:
+        ctx.event(
+            "approved",
+            STAGE,
+            {
+                "checkpoint": checkpoint,
+                "by": ctx.github.pr(number).merged_by,
+                "channel": "github",
+                "hash": None,
+            },
+            actor="engineer",
+        )
 
 
 def earlier_pr(ctx: RunContext, key: str) -> int | None:
@@ -642,6 +667,12 @@ class LaneWork:
         """The agent found a gap in the spec: the amended spec goes on its own branch from main,
         and the Lane waits for its approval. Nothing approved changes yet (ADR 0011)."""
         ctx, path = self.ctx, state["spec"]["path"]
+        approved = (lane_tree(ctx, current) / path).read_text()
+        found = amendments.problems(approved, str(amendment["text"]))
+        if found:
+            record_gate(ctx, "implement", "amendment is a full spec", found, current["key"])
+            return lane_gate_failed(ctx, "implement", "amendment", current, found, "implement")
+        summary, shown = amendments.diff(approved, str(amendment["text"]))
         with _amendments:
             n = 1 + len([e for e in ctx.log.read() if e["type"] == "amendment_raised"])
             branch = f"{run_branch(ctx.run)}-amendment-{n}"
@@ -656,6 +687,8 @@ class LaneWork:
                 "path": path,
                 "hash": content_hash(text),
                 "reason": str(amendment.get("reason", "")),
+                "summary": summary,
+                "diff": shown,
                 "pr": None,
             }
             ctx.event("amendment_raised", "implement", {"lane": current["key"], **record})
@@ -849,8 +882,9 @@ def describe_amendment(state: RunState) -> tuple[str, str, str, str]:
         f"amendment-{a['n']}",
         a["path"],
         a["hash"],
-        f"\n\nLane {current['key']} found a gap in the spec: {a['reason']}\n\nApproving opens a PR "
-        "to main; merging it re-plans the Run from the spec.",
+        f"\n\nLane {current['key']} found a gap in the spec: {a['reason']}\n\n"
+        f"Change from the approved spec ({a['summary']}):\n\n````diff\n{a['diff']}\n````\n\n"
+        "Approving opens a PR to main; merging it re-plans the Run from the spec.",
     )
 
 
