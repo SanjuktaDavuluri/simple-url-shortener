@@ -101,6 +101,12 @@ How it works: the [architecture](docs/architecture.md), the [glossary](CONTEXT.m
 
 The stage graph the orchestrator runs (`orchestrator/src/orchestrator/graph.py`). Each diagram is one level of detail down from the one before.
 
+<p>
+  <img src="docs/images/orchestrator-status.png" alt="Terminal output of `uv run orchestrate status R-0006`: the Stages intake to decompose passed, lanes running, release readiness and close-out pending, PR #189 merged, no approvals waiting, cost so far $1.12" width="760">
+</p>
+
+*`orchestrate status` on a Run in progress (R-0006): which Stage it is in, merged PRs, approvals it is waiting for, and the cost so far.*
+
 ### Run flow
 
 ```text
